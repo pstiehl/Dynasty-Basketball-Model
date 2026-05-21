@@ -48,6 +48,7 @@ def main():
         ("darko", "DARKO"),
         ("court_consensus", "Court Consensus"),
         ("vecenie", "Sam Vecenie"),
+        ("basketball_reference", "Basketball-Reference"),
     ]
     for slug, label in sources_to_sync:
         try:

@@ -132,16 +132,66 @@ across formats.
 
 ---
 
-## 5. Basketball-Reference
+## 5. Basketball-Reference / NBA Stats per-game production
 
-**Site:** https://www.basketball-reference.com/
-**Status in PR #1:** Not loaded.
+**Site:** https://www.basketball-reference.com/ (data via NBA Stats API)
+**Status in PR #3:** LIVE.
 
-Source-of-truth for historical NBA per-season stats. Will be our
-Production loader (planned for the next PR). Once we have several
-seasons of realized fantasy production by player, the `backtest.py`
-stub becomes real and the SourceTrackRecord-driven weight multipliers
-start floating.
+Source-of-truth for NBA per-game box-score production. Pulled via
+[`nba_api`](https://github.com/swar/nba_api)'s `LeagueDashPlayerStats`
+endpoint with `PerMode=PerGame` and `SeasonType=Regular Season`.
+
+**Why it's the most important source in the model**
+
+Until this adapter landed, `points_dhk` and `points_default` produced
+identical rankings because every other source (DARKO, Court
+Consensus, Vecenie) emits a scoring-format-agnostic `market_value`.
+BBRef is the **first format-aware signal**: we compute realized
+fantasy_ppg per league format from `scoring.LEAGUE_SCORING`, so
+stocks merchants (Amen Thompson, Dyson Daniels) rank visibly higher
+in DHK than DEFAULT, and pure scorers (Booker, Curry, Trae Young)
+rank visibly higher in DEFAULT than DHK.
+
+**Access**
+
+One `LeagueDashPlayerStats` call per launcher run, cached as JSON at
+`data/basketball_reference/leaguedash_<season>.json`. The cache ships
+in the repo so CI builds are deterministic and don't hammer
+stats.nba.com (which rate-limits CI ranges hard). Live refresh is
+gated behind `DYNASTY_BBALL_BBREF_LIVE=1` or absence of the cache
+file. Default season is `2025-26` (override via
+`DYNASTY_BBALL_BBREF_SEASON`).
+
+Fields extracted per row: PERSON_ID (used as `nba_id`), PLAYER_NAME,
+TEAM_ABBREVIATION, AGE, GP, MIN, PTS, REB, AST, STL, BLK, TOV, FG3M.
+Min-games floor: 10 GP.
+
+**Default weight:** 1.2. Below DARKO (1.5) because BBRef is
+backward-looking realized production rather than a forward-looking
+impact projection. Above Court Consensus (1.0) because it's ground
+truth instead of opinion. Track-record multiplier will float this
+number naturally once the backtest pipeline runs.
+
+**Not in v1, planned**
+
+- Double-double % and triple-double % — LeagueDashPlayerStats does
+  not expose them; getting them requires per-game logs which would
+  30x the API call count. A follow-up PR can add a PlayerGameLogs
+  cache.
+- Multi-season blending — currently v1 uses one season. A future
+  refinement can weight last 2-3 seasons together so a player who
+  just broke out isn't capped by their pre-breakout average.
+- Tech / flagrant fouls — LeagueDashPlayerStats has them under
+  different endpoints; cheaper to skip in v1 since the DHK
+  deductions are -2 per foul (small compared to scoring weight).
+
+**Why this is THE source for the backtest**
+
+Once we have several seasons cached, `backtest.py` can correlate each
+source's PRIOR-season ranking against BBRef's CURRENT-season
+fantasy_ppg per format — that's the spearman correlation that drives
+the `SourceTrackRecord` multipliers in `weights.py`. BBRef becomes
+the ground-truth y-axis the rest of the model gets graded against.
 
 ---
 

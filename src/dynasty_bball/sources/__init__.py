@@ -8,6 +8,7 @@ from .base import BaseSource, RankingRecord
 from .darko import DARKO
 from .court_consensus import CourtConsensus
 from .vecenie import Vecenie
+from .basketball_reference import BasketballReference
 from .sleeper_players import SleeperPlayers
 
 
@@ -17,11 +18,13 @@ REGISTRY: dict[str, Type[BaseSource]] = {
         DARKO,
         CourtConsensus,
         Vecenie,
+        BasketballReference,
         SleeperPlayers,
     ]
 }
 
 __all__ = [
     "REGISTRY", "BaseSource", "RankingRecord",
-    "DARKO", "CourtConsensus", "Vecenie", "SleeperPlayers",
+    "DARKO", "CourtConsensus", "Vecenie", "BasketballReference",
+    "SleeperPlayers",
 ]

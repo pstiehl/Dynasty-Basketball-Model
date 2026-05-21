@@ -104,6 +104,33 @@ SOURCE_DESCRIPTIONS: dict[str, dict] = {
             "production backtest."
         ),
     },
+    "basketball_reference": {
+        "blurb": (
+            "Realized per-game NBA box-score production via nba_api's "
+            "LeagueDashPlayerStats endpoint. The first format-aware "
+            "signal in the model — fantasy_ppg is computed per league "
+            "format from scoring.LEAGUE_SCORING so points_dhk and "
+            "points_default produce different rankings."
+        ),
+        "type": "Model (realized production)",
+        "strength": (
+            "Ground truth. Every other source is opinion or projection; "
+            "this one is what actually happened on the floor last season. "
+            "Drives the divergence between scoring formats."
+        ),
+        "weakness": (
+            "Backward-looking. A player who just broke out mid-season will "
+            "be undervalued; a player who just fell off will be overvalued. "
+            "DD% / TD% intentionally skipped in v1 to keep API cost low."
+        ),
+        "weight_justification": (
+            "Default weight 1.2. Below DARKO (1.5, forward-looking impact "
+            "+ longevity) because BBRef is retrospective; above Court "
+            "Consensus (1.0) because it's hard ground truth rather than "
+            "crowd opinion. Track-record multiplier will float this once "
+            "the backtest pipeline runs."
+        ),
+    },
     "sleeper_players": {
         "blurb": "Sleeper's canonical NBA player ID map. Used internally; does not contribute to scoring.",
         "type": "Reference data",

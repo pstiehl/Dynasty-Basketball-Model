@@ -15,6 +15,134 @@ Format for each entry:
 
 ---
 
+## v0.3.0 — Basketball-Reference per-game production via nba_api (PR #3)
+
+**Date:** 2026-05-21
+
+Resolves the open issue from PR #2: `points_dhk` and `points_default`
+rendered **identical** composite rankings because every source we had
+so far (DARKO, Court Consensus, Vecenie) was scoring-agnostic — they
+all emit the same `market_value` regardless of league format. This PR
+lands the first source whose `market_value` is *format-dependent*, so
+the two formats finally diverge.
+
+**Basketball-Reference adapter** (`sources/basketball_reference.py`)
+
+- Category: `model`. Default weight: 1.2. Sits between DARKO (1.5,
+  forward-looking impact + longevity) and Court Consensus (1.0,
+  community consensus). BBRef is backward-looking *realized* per-game
+  production — hard ground truth, but stale by definition, hence the
+  middle weight. Track-record multiplier will float it once the
+  backtest pipeline lands.
+- Source: NBA Stats API via [`nba_api`](https://github.com/swar/nba_api)
+  (LeagueDashPlayerStats endpoint, `PerMode=PerGame`,
+  `SeasonType=Regular Season`). One call per launcher run.
+- **Cached JSON** at `data/basketball_reference/leaguedash_<season>.json`.
+  The cache is checked into the repo so the daily CI build is
+  deterministic and never hammers stats.nba.com (they rate-limit hard
+  from CI ranges). Live refresh is gated behind
+  `DYNASTY_BBALL_BBREF_LIVE=1` or cache absence.
+- Default season is `2025-26` (configurable via
+  `DYNASTY_BBALL_BBREF_SEASON`). Two cache files ship in the repo:
+  2024-25 and 2025-26.
+- Min-games floor: 10 GP. Filters out one-game cameos whose per-game
+  numbers are noise.
+- **Format-aware `market_value`**: for each player we compute
+  `fantasy_ppg` under both `points_dhk` and `points_default`
+  using `scoring.LEAGUE_SCORING` (the single source of truth for
+  stat weights). The top scorer in each format rescales to
+  `market_value=100`; everyone else tapers proportionally. This is
+  the first signal in the model that *differs by format* — it's why
+  the two composite tables now diverge.
+- Per-game counters (pts/reb/ast/stl/blk/tov/3pm) propagate onto the
+  `RankingRecord` so downstream views can show realized production
+  alongside the DARKO impact metrics.
+- v1 ships without DD% / TD% — LeagueDashPlayerStats does not expose
+  them and per-game logs would 30x the API cost. Follow-up PR will
+  add a PlayerGameLogs cache for that.
+
+**Scoring formulas** (per PR scope)
+
+Phil's Dynasty Hoop Kings league (`points_dhk`):
+```
+fantasy_ppg = pts*0.5 + reb*1.0 + ast*1.0 + stl*2.0 + blk*2.0
+            + tov*(-1.0) + 3pm*0.5
+```
+
+Generic Sleeper points league (`points_default`):
+```
+fantasy_ppg = pts*1.0 + reb*1.2 + ast*1.5 + stl*3.0 + blk*3.0
+            + tov*(-1.0) + 3pm*0.5
+```
+
+Both come straight from `scoring.LEAGUE_SCORING`. DD%/TD% bonuses and
+technical/flagrant deductions are still defined in DHK's scoring dict
+but intentionally not applied by BBRef in v1 (no data).
+
+**Expected ranking shifts** (BBRef-only signal, no composite mix)
+
+Stocks merchants (high stl/blk/reb, modest scoring) move UP in DHK
+because `stl=2.0 / blk=2.0 / reb=1.0` while `pts=0.5`. Pure scorers
+move UP in DEFAULT because `pts=1.0` dominates.
+
+From the live 2025-26 cache:
+
+| Player                | DHK rank | DEFAULT rank | Delta |
+|-----------------------|----------|--------------|-------|
+| Amen Thompson         | 31       | 38           | −7    |
+| Ausar Thompson        | 110      | 119          | −9    |
+| Dyson Daniels         | 52       | 64           | −12   |
+| Kevin Durant          | 28       | 20           | +8    |
+| Devin Booker          | 43       | 30           | +13   |
+| Trae Young            | 90       | 73           | +17   |
+| Klay Thompson         | 264      | 247          | +17   |
+| Stephen Curry         | 35       | 25           | +10   |
+
+(Negative delta = ranks higher in DHK.)
+
+Top-15 in each format is also visibly different. DHK pushes Jalen
+Johnson into the top 5 (high stocks); DEFAULT favors high-volume
+scorers like Anthony Edwards and Jamal Murray.
+
+**Composite impact**
+
+BBRef enters the composite via the same value-based normalization
+path DARKO / Court Consensus use. The DHK and DEFAULT composite
+tables now produce DIFFERENT top-15s for the first time — verified
+in a launcher run on 2026-05-21 against the cached BBRef payload
+(see PR #3 description for the side-by-side table).
+
+**Validation**
+
+- 48 unit tests pass (`pytest tests/ -q`). New tests in
+  `tests/test_basketball_reference_parser.py` (15 tests, fixture-only,
+  no network) cover:
+  - parser shape + min-games floor + empty-payload tolerance
+  - **format divergence**: Amen Thompson ranks higher in DHK than
+    DEFAULT; Devin Booker ranks higher in DEFAULT than DHK; the
+    two ordered lists are not identical.
+  - hand-checked `fantasy_ppg` against known DHK + DEFAULT formulas
+  - adapter cache-first behavior + missing-cache fallback
+- Smoke test still passes end-to-end.
+- Live launcher run on 2026-05-21 confirmed BBRef sync: 1012 rows
+  (506 players × 2 formats), composite scoring 506 players in each.
+
+**Caveats**
+
+- nba_api wraps stats.nba.com which is rate-limited per IP. CI relies
+  on the checked-in JSON cache; live refresh from CI is opt-in only.
+- 2025-26 cache reflects the season-to-date snapshot at the time of
+  this PR — will be refreshed periodically by re-running with
+  `DYNASTY_BBALL_BBREF_LIVE=1`. Cache files are gitignored under no
+  rule, so they ride with the repo.
+- The BBRef signal is *retrospective*. A young player who breaks out
+  mid-season will be undervalued by BBRef and overvalued by DARKO;
+  composite blending is intentional — PR #4 will add
+  forward-projection sources (Hashtag Basketball / Basketball Monster)
+  to balance.
+
+---
+
 ## v0.2.0 — Court Consensus baseline + Sam Vecenie CSV slot (PR #2)
 
 **Date:** 2026-05-21
