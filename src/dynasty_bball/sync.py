@@ -46,6 +46,18 @@ def _ensure_source_row(session, adapter: BaseSource) -> Source:
         )
         session.add(row)
         session.flush()
+    else:
+        # Refresh fields that can legitimately change between releases.
+        # Weight in particular MUST refresh — PR #4 drops DARKO from
+        # 1.5 → 0.8 and that change has to land in the DB on every
+        # sync, not just on fresh installs.
+        row.name = adapter.name
+        row.category = adapter.category
+        row.url = adapter.homepage
+        row.update_frequency = adapter.update_frequency
+        row.tos_compliant = adapter.tos_compliant
+        row.default_weight = adapter.default_weight
+        row.notes = adapter.notes
     return row
 
 

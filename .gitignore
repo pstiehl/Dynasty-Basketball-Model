@@ -51,6 +51,8 @@ data/**/*.parquet
 # in the repo so the daily CI build is deterministic and doesn't
 # hammer stats.nba.com. See sources/basketball_reference.py.
 !data/basketball_reference/*.json
+!data/historical_nba/*.json
+!data/career_arc/*.json
 
 # OS
 Thumbs.db

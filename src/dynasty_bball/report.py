@@ -131,6 +131,58 @@ SOURCE_DESCRIPTIONS: dict[str, dict] = {
             "the backtest pipeline runs."
         ),
     },
+    "career_arc": {
+        "blurb": (
+            "KNN over a 1980-present historical NBA corpus. For each "
+            "current player at age A, finds the top-20 historical "
+            "player-seasons at age A±1 with matching production profile, "
+            "then projects remaining-career fantasy points by aggregating "
+            "those comps' actual remaining careers."
+        ),
+        "type": "Model (similarity)",
+        "strength": (
+            "The only source in the composite that produces a "
+            "forward-looking, longevity-aware dynasty value grounded in "
+            "actual historical career arcs. Replaces DARKO's broken "
+            "survival curves (Cooper Flagg retiring at 28, etc.) as the "
+            "primary longevity input."
+        ),
+        "weakness": (
+            "Historical comps are profile-based, not narrative-based: "
+            "a player with an unusual injury history (e.g. an ankle that "
+            "will rob 5 years off a long-career comp) gets credit for "
+            "the median comp's longevity. Censored comps (players whose "
+            "careers are still active at corpus end) are treated as lower "
+            "bounds, which biases projections for active-era comps slightly "
+            "low. The position bucket is heuristic, derived from stats, "
+            "not from official roster designations."
+        ),
+        "weight_justification": (
+            "Default weight 1.8 — the highest in the composite. Justified "
+            "because dynasty value is fundamentally about what a player "
+            "will produce going forward, and this is the only source that "
+            "directly projects that. DARKO's weight dropped 1.5 → 0.8 in "
+            "the same release because its longevity signal is now "
+            "superseded; DARKO contributes only its current-skill DPM."
+        ),
+    },
+    "historical_nba": {
+        "blurb": (
+            "Every NBA player-season since 1980, pulled via "
+            "nba_api.LeagueDashPlayerStats and cached as JSON under "
+            "data/historical_nba/. Backs the career_arc similarity engine; "
+            "does not emit Ranking rows directly."
+        ),
+        "type": "Reference data",
+        "strength": "45 seasons of consistent box-score data.",
+        "weakness": (
+            "Backward-looking by definition. Pre-1980 seasons excluded "
+            "because 3PT and full STL/BLK tracking weren't standardized."
+        ),
+        "weight_justification": (
+            "N/A — backs career_arc, not weighted directly."
+        ),
+    },
     "sleeper_players": {
         "blurb": "Sleeper's canonical NBA player ID map. Used internally; does not contribute to scoring.",
         "type": "Reference data",
@@ -740,13 +792,52 @@ document.addEventListener("DOMContentLoaded", evaluate);
 # players/<slug>.html
 # ---------------------------------------------------------------------------
 
-def _build_player_page(cs, p, all_sources, latest_ts, league_format: str) -> str:
+def _load_career_arc_sidecar() -> dict:
+    """Load the career_arc comparables sidecar JSON if present.
+
+    Written by the career_arc adapter during sync. Format::
+
+        {
+          "generated_at": iso,
+          "current_season": "2025-26",
+          "by_nba_id": {
+            "<nba_id>": {
+              "top_comparables": [{name, season, age, similarity,
+                                    remaining_seasons, remaining_games,
+                                    remaining_fp_dhk, remaining_fp_default,
+                                    bucket_match, censored}, ...],
+              "n_comparables": int,
+              "by_format": {"points_dhk": {dynasty_value, ...},
+                            "points_default": {...}}
+            }, ...
+          }
+        }
+
+    Returns ``{}`` if the file is missing (e.g. historical corpus not
+    yet committed) so player pages still render.
+    """
+    path = Path("data/career_arc/comparables.json")
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _build_player_page(cs, p, all_sources, latest_ts, league_format: str,
+                       career_arc_sidecar: dict | None = None) -> str:
     try:
         bd = json.loads(cs.breakdown_json or "{}")
     except Exception:
         bd = {}
 
     source_by_slug = {s.slug: s for s in all_sources}
+    sidecar = career_arc_sidecar or {}
+    entry = (sidecar.get("by_nba_id") or {}).get(p.nba_id or "", {})
+    comps = entry.get("top_comparables", []) or []
+    by_fmt = (entry.get("by_format") or {}).get(league_format, {})
 
     rows_html = ""
     for slug, info in sorted(bd.items(), key=lambda kv: -kv[1].get("weight", 0)):
@@ -777,6 +868,55 @@ def _build_player_page(cs, p, all_sources, latest_ts, league_format: str) -> str
   <div style="margin-top:14px"><a href="../rankings.html" style="color:var(--header-text);opacity:0.8;font-size:13px">← back to rankings</a></div>
 </div>"""
 
+    # Career-Arc comparables block. Only render if we have data.
+    comps_html = ""
+    if comps:
+        rows = ""
+        for c in comps:
+            ppg_key = "remaining_fp_dhk" if league_format == "points_dhk" else "remaining_fp_default"
+            ppg = c.get(ppg_key)
+            censored_flag = " (still active)" if c.get("censored") else ""
+            bucket_flag = "" if c.get("bucket_match") else " · adj. bucket"
+            rows += (
+                f"<tr>"
+                f"<td class=\"name\">{_esc(c.get('name',''))}</td>"
+                f"<td class=\"years\">{_esc(c.get('season',''))}</td>"
+                f"<td class=\"years\">{c.get('age','')}</td>"
+                f"<td class=\"score\">{c.get('similarity', 0):.3f}</td>"
+                f"<td class=\"years\">{c.get('remaining_seasons', '')}{censored_flag}{bucket_flag}</td>"
+                f"<td class=\"score\">{ppg if ppg is not None else '—'}</td>"
+                f"</tr>"
+            )
+        dv = by_fmt.get("dynasty_value")
+        py = by_fmt.get("projected_remaining_years")
+        tp = by_fmt.get("projected_total_fantasy_points")
+        headline = []
+        if dv is not None:
+            headline.append(f"dynasty_value <strong>{dv:.1f}</strong>")
+        if py is not None:
+            headline.append(f"projected remaining years <strong>{py:.1f}</strong>")
+        if tp is not None:
+            headline.append(f"projected remaining fantasy pts <strong>{int(tp):,}</strong>")
+        headline_line = " · ".join(headline) if headline else ""
+        comps_html = f"""
+<h2>Career-Arc Comparables</h2>
+<p class="lede">Top-5 most similar historical NBA player-seasons at this
+age (±1), by production profile. The model's dynasty value is the
+similarity-weighted projection of these careers' remaining production
+(time-discounted 5%/yr).</p>
+<p class="lede" style="margin-top:-6px"><em>{headline_line}</em></p>
+
+<table>
+<thead><tr>
+  <th>Comparable player</th><th>Their season</th><th>Age</th>
+  <th style="text-align:right">Similarity</th>
+  <th>Their remaining years</th>
+  <th style="text-align:right">Their remaining fppg ({_esc(league_format)})</th>
+</tr></thead>
+<tbody>{rows}</tbody>
+</table>
+"""
+
     body = f"""<div class="container">
 
 <h2>Per-source breakdown</h2>
@@ -791,6 +931,8 @@ source's universe, and the effective weight applied.</p>
 </tr></thead>
 <tbody>{rows_html or '<tr><td colspan=5 style="color:var(--muted)">No source contributions yet.</td></tr>'}</tbody>
 </table>
+
+{comps_html}
 
 </div>"""
 
@@ -872,10 +1014,14 @@ Run the launcher again — make sure the sync step completes successfully.</div>
             _build_league_page(latest_ts, league_format), encoding="utf-8"
         )
 
+        career_arc_sidecar = _load_career_arc_sidecar()
         for cs, p in rows:
             slug = _slugify(p.full_name, p.id)
             (out_root / "players" / f"{slug}.html").write_text(
-                _build_player_page(cs, p, sources, latest_ts, league_format),
+                _build_player_page(
+                    cs, p, sources, latest_ts, league_format,
+                    career_arc_sidecar=career_arc_sidecar,
+                ),
                 encoding="utf-8",
             )
 
