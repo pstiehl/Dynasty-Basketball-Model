@@ -52,6 +52,11 @@ data/**/*.parquet
 # hammer stats.nba.com. See sources/basketball_reference.py.
 !data/basketball_reference/*.json
 !data/historical_nba/*.json
+# NCAA D1 corpus (~2MB/season, 18 seasons) -- shipped for CI determinism
+# in the rookie college->NBA chain. See sources/historical_ncaa.py.
+!data/historical_ncaa/*.json
+# College->NBA bridge crosswalk (rebuilt during career_arc sync).
+!data/bridge/*.json
 !data/career_arc/*.json
 # Name resolver: ship the curated alias map (small, hand-edited) and
 # the diagnostic sidecars so the rendered site banner has data on a

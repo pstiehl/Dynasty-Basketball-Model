@@ -347,29 +347,203 @@ def build_profile_from_stats(
 
 
 # ---------------------------------------------------------------------------
-# College vectorization stub (PR #5 hook)
+# College vectorization (PR #7 — rookie chain)
 # ---------------------------------------------------------------------------
 
-def vectorize_college_season(*args, **kwargs):
-    """STUB — implemented in PR #5.
+# The college feature space mirrors the NBA feature space dimension-
+# for-dimension so the two corpora can be compared directly. We do NOT
+# share the same z-score normalization with the NBA corpus, however —
+# college and NBA stats live in genuinely different distributions
+# (a 20-PPG college freshman ≠ a 20-PPG NBA veteran). Each corpus
+# z-scores against ITSELF, and the rookie comp lookup happens within
+# the college corpus. The NBA careers attached to the college comps
+# via the bridge supply the projection (longevity + fantasy points).
 
-    Will accept a college player-season (from sports-reference) and
-    emit a Profile in the SAME feature space as ``build_profile``,
-    after translating for college pace and league strength. The
-    returned Profile can then be passed to ``comparables.find_comparables``
-    against a parallel college→NBA corpus to project rookie value.
+COLLEGE_FEATURE_NAMES: tuple[str, ...] = (
+    "pts_per36",
+    "reb_per36",
+    "ast_per36",
+    "stl_per36",
+    "blk_per36",
+    "tpm_per36",
+    "tov_per36_proxy",
+    "fga_per36",
+    "fta_per36",
+    "ts_pct",
+    "gp_pct",          # GP / 35 (full NCAA D1 reg+conf tournament)
+    "mpg",
+    # NCAA-specific signals — these don't have NBA analogues but they
+    # SHARPEN the within-college comp search (age-relative production,
+    # conference strength, class indicator).
+    "usg_pct",
+    "age_rel_class",   # age minus typical age for that class
+    "conf_strength",   # 1.00 P5 / 0.92 HM / 0.83 MM / 0.75 LM
+    "class_progress",  # 0 Fr / 1 So / 2 Jr / 3 Sr (linear)
+)
 
-    Design notes for PR #5:
-      * College pace ≈ 70 possessions; NBA ≈ 100. Multiply per-game
-        rates by 100/70 to put them in roughly NBA scale.
-      * League strength adjustment: needs a regression on the
-        college→NBA bridge players (e.g. how AAU per-36 scoring
-        translates to year-1 NBA per-36 scoring). Bucket the
-        adjustment by conference (P5 vs G5 vs international).
-      * Keep position_bucket derivation identical — the heuristic
-        is league-agnostic.
+# Typical age-at-season for each NCAA class (approximate, used as the
+# baseline against which we compute age_rel_class).
+_TYPICAL_AGE_BY_CLASS = {
+    "Fr": 18.5, "So": 19.5, "Jr": 20.5, "Sr": 21.5,
+    "Gr": 22.5, "R-Fr": 19.5, "R-So": 20.5, "R-Jr": 21.5, "R-Sr": 22.5,
+}
+_CLASS_PROGRESS = {
+    "Fr": 0, "So": 1, "Jr": 2, "Sr": 3, "Gr": 4,
+    "R-Fr": 0, "R-So": 1, "R-Jr": 2, "R-Sr": 3,
+}
+
+
+def _derive_college_bucket(
+    ast_pg: float, reb_pg: float, blk_pg: float, mpg: float,
+    height: Optional[str] = None,
+) -> str:
+    """Bucket an NCAA player into PG/SG/SF/PF/C from their stat profile.
+
+    Mirrors derive_position_bucket but tuned for NCAA per-game ranges
+    (college pace is slower, scoring totals smaller). Optionally uses
+    height when available as a tiebreaker — barttorvik's listed height
+    is usually accurate.
     """
-    raise NotImplementedError(
-        "College vectorization lands in PR #5 (rookie/college engine). "
-        "See dynasty_bball/similarity/vectorize.py docstring for the design."
+    if mpg <= 0:
+        mpg = 24.0
+    ast36 = ast_pg * (36.0 / mpg)
+    big36 = (reb_pg + 1.5 * blk_pg) * (36.0 / mpg)
+    inches = _height_to_inches(height)
+    # Honest 7-footer who rebounds/blocks → C. 6-10 (82) and below are
+    # too often combo bigs / stretch 4s to lock as C purely from height.
+    if inches and inches >= 83 and big36 >= 9.5 and ast36 < 4.5:
+        return "C"
+    if big36 >= 13.0 and ast36 < 3.0:
+        return "C"
+    if big36 >= 9.0 and ast36 < 3.5:
+        return "PF"
+    if ast36 >= 5.5:
+        return "PG"
+    if ast36 >= 3.5 and big36 < 8.0:
+        return "SG"
+    if big36 < 9.0:
+        return "SF"
+    # 6-9+ with playmaking → SF/PF combo; default to PF.
+    if inches and inches >= 80:
+        return "PF"
+    return "SF"
+
+
+def _height_to_inches(h: Optional[str]) -> Optional[int]:
+    if not h or not isinstance(h, str) or "-" not in h:
+        return None
+    try:
+        ft, inch = h.split("-", 1)
+        return int(ft) * 12 + int(inch)
+    except Exception:
+        return None
+
+
+def vectorize_college_season(
+    row,
+    conference_multiplier: float = 1.0,
+) -> Profile:
+    """Turn one HistoricalNCAASeason into a Profile in college space.
+
+    Implements the PR #7 college side of the similarity engine:
+      * Per-36 production rates (PTS/REB/AST/STL/BLK/3PM/FGA/FTA)
+      * TS%, USG%
+      * Class progress (0..3) + age-relative-to-class
+      * Conference strength multiplier applied to the production
+        vector (a 20 PPG SEC freshman is more impressive than a
+        20 PPG Sun Belt freshman of the same age).
+      * Position bucket derived from per-36 stats + height.
+
+    The returned Profile's ``raw_vec`` is in the COLLEGE feature space
+    (length == ``len(COLLEGE_FEATURE_NAMES)``), NOT the NBA feature
+    space. Pass a list of these to ``build_college_corpus_profiles``
+    to z-score them against the NCAA corpus.
+    """
+    mpg = row.mpg if row.mpg and row.mpg > 0 else 24.0
+    # Apply conference strength to the production dimensions so the
+    # KNN naturally prefers comps from the right competitive tier.
+    cm = conference_multiplier
+    raw_vec = np.array([
+        _per36(row.pts_pg, mpg) * cm,
+        _per36(row.reb_pg, mpg) * cm,
+        _per36(row.ast_pg, mpg) * cm,
+        _per36(row.stl_pg, mpg) * cm,
+        _per36(row.blk_pg, mpg) * cm,
+        _per36(row.tpm_pg, mpg) * cm,
+        # TO/G isn't directly in the NCAA row — TO% × USG% is a coarse
+        # proxy. Multiplied by 0.01 to roughly normalize to per-36 scale.
+        (row.to_pct or 0.0) * (row.usg_pct or 0.0) * 0.01,
+        _per36(row.fga_pg, mpg) * cm,
+        _per36(row.fta_pg, mpg) * cm,
+        row.ts_pct or 0.0,
+        min(1.0, row.gp / 35.0),
+        mpg,
+        row.usg_pct or 0.0,
+        _age_rel_class(row.age_at_season, row.class_year),
+        cm,
+        _CLASS_PROGRESS.get((row.class_year or ""), 1),
+    ], dtype=np.float64)
+    bucket = _derive_college_bucket(
+        ast_pg=row.ast_pg, reb_pg=row.reb_pg, blk_pg=row.blk_pg,
+        mpg=mpg, height=row.height,
+    )
+    return Profile(
+        nba_id=row.sr_player_id,   # piggyback the nba_id slot for ncaa pid
+        name=row.name,
+        season=row.season,
+        season_end_year=row.season_end_year,
+        age=row.age_at_season if row.age_at_season is not None else _TYPICAL_AGE_BY_CLASS.get(row.class_year or "", 19.5),
+        team=row.school,
+        position_bucket=bucket,
+        raw_vec=raw_vec,
+        season_row=None,
+    )
+
+
+def _age_rel_class(age: Optional[float], class_year: Optional[str]) -> float:
+    """Age relative to the typical age for the player's class.
+
+    Positive = older than peers (often less NBA upside), negative =
+    younger than peers (often higher NBA upside — early-entry).
+    """
+    if age is None or class_year is None:
+        return 0.0
+    typ = _TYPICAL_AGE_BY_CLASS.get(class_year, 19.5)
+    return float(age) - typ
+
+
+def build_college_corpus_profiles(
+    rows: Iterable,
+    conference_lookup=None,
+) -> CorpusProfiles:
+    """Build the college corpus: profile every NCAA player-season + z-score.
+
+    ``conference_lookup`` is a callable ``conf_code -> multiplier``. If
+    omitted, defaults to the standard 4-tier lookup in historical_ncaa.
+    """
+    if conference_lookup is None:
+        from ..sources.historical_ncaa import conference_strength_multiplier
+        conference_lookup = conference_strength_multiplier
+
+    profiles = [
+        vectorize_college_season(r, conference_multiplier=conference_lookup(r.conference))
+        for r in rows
+    ]
+    if not profiles:
+        return CorpusProfiles(
+            profiles=[],
+            feature_means=np.zeros(len(COLLEGE_FEATURE_NAMES)),
+            feature_stds=np.ones(len(COLLEGE_FEATURE_NAMES)),
+        )
+    raw = np.vstack([p.raw_vec for p in profiles])
+    means = raw.mean(axis=0)
+    stds = raw.std(axis=0)
+    stds_safe = np.where(stds > 1e-9, stds, 1.0)
+    normed = (raw - means) / stds_safe
+    for prof, nv in zip(profiles, normed):
+        prof.norm_vec = nv
+    return CorpusProfiles(
+        profiles=profiles,
+        feature_means=means,
+        feature_stds=stds_safe,
     )

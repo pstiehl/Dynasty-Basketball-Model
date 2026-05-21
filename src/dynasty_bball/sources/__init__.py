@@ -10,6 +10,7 @@ from .court_consensus import CourtConsensus
 from .vecenie import Vecenie
 from .basketball_reference import BasketballReference
 from .historical_nba import HistoricalNBA
+from .historical_ncaa import HistoricalNCAA
 from .career_arc import CareerArc
 from .sleeper_players import SleeperPlayers
 
@@ -22,6 +23,7 @@ REGISTRY: dict[str, Type[BaseSource]] = {
         Vecenie,
         BasketballReference,
         HistoricalNBA,
+        HistoricalNCAA,
         CareerArc,
         SleeperPlayers,
     ]

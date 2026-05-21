@@ -15,6 +15,127 @@ Format for each entry:
 
 ---
 
+## v0.6.0 — Rookie college→NBA similarity chain (PR #7)
+
+**Date:** 2026-05-21
+
+**What changed.** The career-arc engine now projects rookies and current
+draft prospects by chaining college similarity to NBA careers. The PR
+#4/#5 NBA-only engine compared current NBA players against the
+1980-present NBA corpus; PR #7 adds a parallel **NCAA D1 corpus**
+(2008-2025, 55,528 player-seasons from barttorvik.com) and a
+**college→NBA bridge** that maps every NBA player back to their college
+season(s). For a draft-eligible player like Cooper Flagg the engine
+now:
+
+1. Vectorizes his 2024-25 Duke season in college feature space (per-36
+   production + USG + class-relative age + conference strength).
+2. KNNs over the NCAA corpus to find the top-20 most similar same-class
+   (Fr/So/Jr/Sr) same-bucket player-seasons.
+3. Looks up each comp's realized NBA career through the bridge.
+4. Aggregates similarity-weighted, time-discounted 5%/yr.
+
+The rookie projection (`rookie_dynasty_value`) is blended with the
+existing NBA-side projection based on how many NBA seasons the target
+has under his belt:
+
+  * 0 NBA seasons → rookie projection only (pure college→NBA chain).
+  * 1 NBA season  → 50/50 blend of rookie + NBA (the 1-year NBA sample
+                    is noisy; college comps still informative).
+  * 2+ NBA seasons → NBA-side projection only (PR #4 behavior).
+
+**Why.** The PR #4 engine couldn't project pure rookies because they
+have no NBA seasons to vectorize. It also misprojected 1-year players
+because the lone NBA sample drove all the signal. The college side
+restores meaningful comp data for players entering the draft and the
+blend logic stabilizes the year-1 projection.
+
+**Data sourcing.** The PR spec called for sports-reference.com/cbb but
+that endpoint returns 403 from cloud / CI IPs (Cloudflare-style anti-
+bot). We substituted **barttorvik.com**’s public `getadvstats.php`
+endpoint, which:
+
+  * Covers every D1 player-season 2008–present (~85K rows pre-filter).
+  * Already exposes advanced stats (USG, TS%, BPM-equivalent).
+  * Returns clean JSON in one round-trip per season.
+  * Is bot-friendly and rate-limit-tolerant at 1s/request.
+
+The substitution is documented in `RESEARCH-sources.md`. NCAA data
+before 2008 is unavailable from barttorvik; the bridge naturally
+limits to 2008+ NBA-bound college players. Pre-2008 NBA stars (Kobe,
+KG, LeBron, much of the 2000s draft class) get NBA-only similarity,
+which is the existing PR #4 behavior — no regression.
+
+**Bridge coverage.** 801/1947 historical NBA players (41.1% raw) match
+an NCAA player-season; restricted to bridgeable players (post-2008
+debuts), coverage is **77.0%**. The 23% gap is dominated by
+international players (Jokic, Giannis, Schroder, Capela, Sarr,
+Buzelis, Risacher, ...) who never played NCAA. Documenting that an
+international/G-League prospect bridge is a future PR — the existing
+NBA-only fall-through handles them correctly today.
+
+**Composite integration.** The career_arc adapter's emitted ranking
+records now span both NBA-cohort players AND pure-rookie NCAA
+prospects (filtered to ~580 players passing a prospect threshold:
+MPG≥22 plus P5/HM BPM≥4 or USG≥22, OR BPM≥7 at any conference). The
+blended dynasty_value sits in the composite alongside the existing
+DARKO/CC/Vecenie/BBRef signals.
+
+**Expected output shift (rookie class):**
+
+  * **Cooper Flagg** — top college comps Paolo Banchero, Jayson Tatum,
+    Jabari Smith, Brandon Ingram, Tobias Harris. Projected NBA career
+    ≥ 10 seasons (test invariant). Blends 50/50 with NBA projection.
+  * **Dylan Harper** — top comps Cade Cunningham, D'Angelo Russell,
+    Collin Sexton. Pure-college projection ~12-14 seasons.
+  * **VJ Edgecombe** — top comps Marcus Smart, Dejounte Murray.
+  * **Jeremiah Fears, Stephon Castle** — perceived less elite by the
+    pure-college engine; both bridge to NBA careers like SGA / Kemba
+    via Castle and Tony Wroten / Sindarius Thornwell via Fears.
+  * **Long tail:** a handful of high-BPM low-major freshmen the engine
+    rates highly (Thomas Sorber, JT Toppin, Jayden Quaintance, Austin
+    Rapp) appear in the rookie top-20 by college vector despite low
+    consensus rank. This is the expected noise of an unanchored
+    college→NBA model; future PRs can add a draft-stock prior (RSCI /
+    ESPN 100) to attenuate.
+
+**Limitations documented in `ROOKIE-SIMILARITY.md`:**
+
+  * NCAA-only — international prospects (Wemby, Risacher, Sarr,
+    Buzelis) fall back to the NBA-only similarity engine. PR target:
+    add FIBA / Adidas Next Gen / G League Ignite bridges.
+  * Per-36 inflation for low-MPG bench bigs — the prospect filter
+    requires MPG≥22 to suppress this.
+  * Censored-comp extrapolation extends still-active careers to a
+    typical exit age (34 star / 30 role / 27 bench). Without it, a
+    comp like Tatum gets capped at his realized 8 seasons, which
+    underprojects rookies who match him.
+  * Conference-strength multiplier is a flat 1.00 / 0.92 / 0.83 / 0.75
+    by tier (P5/HM/MM/LM). A future PR could regress conference
+    strength against actual NBA outcomes for a smoother adjustment.
+
+**Validation.** New tests in `tests/test_rookie_similarity.py` cover:
+
+  * NCAA corpus size ≥ 50K rows.
+  * Bridge coverage ≥ 70% of post-2008-debut NBA players.
+  * Cooper Flagg projection ≥ 10 NBA seasons.
+  * A low-major NCAA Sr fixture projects ≤ 4 NBA seasons.
+  * 50/50 blend math at n_nba_seasons=1.
+  * International players (no NCAA match) produce `rookie_dv=None`
+    and fall back to NBA-only dv unchanged.
+  * Bridge alias hits (e.g. `Nic Claxton` ↔ `Nicolas Claxton`).
+  * Batched KNN returns identical top similarities to single-target.
+  * Barttorvik payload parser drops <10 MPG rows.
+
+Full test count: **108 passing** (90 pre-PR baseline + 18 new).
+
+**Performance.** Full pipeline (load NBA + NCAA corpora, build bridge,
+project 500 NBA players + 580 NCAA prospects across both formats):
+~85s on a single core. The NCAA KNN is batched into 200-target
+matmuls to fit the 55K×16 candidate matrix into memory.
+
+---
+
 ## v0.5.0 — Name resolver + dedup pass (PR #6)
 
 **Date:** 2026-05-21

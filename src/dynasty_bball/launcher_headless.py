@@ -60,6 +60,10 @@ def main():
         # Must run AFTER basketball_reference because it reuses that
         # cache for current-season production.
         ("historical_nba", "Historical NBA corpus"),
+        # PR #7 — NCAA D1 corpus for the rookie college→NBA chain.
+        # Verifies the cache (no Ranking rows emitted; the career_arc
+        # adapter consumes the data directly).
+        ("historical_ncaa", "Historical NCAA D1 corpus"),
         ("career_arc", "Career-Arc Similarity"),
     ]
     resolver_stats = ResolverStats()
