@@ -54,6 +54,56 @@ SOURCE_DESCRIPTIONS: dict[str, dict] = {
             "adjust this once we have NBA production backtests."
         ),
     },
+    "court_consensus": {
+        "blurb": (
+            "Crowdsourced ELO-based dynasty NBA rankings from "
+            "courtconsensus.com. Players are ranked via head-to-head "
+            "community voting (76k+ data points and growing); the ELO "
+            "score is the consensus signal."
+        ),
+        "type": "Market / consensus",
+        "strength": (
+            "Anchors the model against community consensus. Rookie ranks "
+            "that DARKO's longevity bonus over-inflates are sanded down "
+            "by CC's voted-on ranking of those same prospects (typical "
+            "CC placement for hyped rookies: #30–60, not the top 15)."
+        ),
+        "weakness": (
+            "Crowd-derived — prone to recency bias and hype. Not an "
+            "impact metric or a longevity model; complements DARKO "
+            "rather than competing with it."
+        ),
+        "weight_justification": (
+            "Default weight 1.0 — standard consensus baseline. DARKO "
+            "remains heavier at 1.5 because it carries impact + "
+            "longevity that CC by design lacks."
+        ),
+    },
+    "vecenie": {
+        "blurb": (
+            "Sam Vecenie's Big Board (The Athletic). The de-facto "
+            "industry consensus for pre-NBA prospect evaluation; ranks "
+            "are loaded from a local CSV drop because the underlying "
+            "board is paywalled."
+        ),
+        "type": "Expert (single analyst)",
+        "strength": (
+            "Documented strong track record on NBA draft prospect "
+            "translation. The football-side analog would be Lance "
+            "Zierlein."
+        ),
+        "weakness": (
+            "Manual CSV drop — only as fresh as the last update. "
+            "Rookie-signal source: players who appear ONLY on the Big "
+            "Board are filtered out of the top of the composite to "
+            "prevent draft-prospect squatting."
+        ),
+        "weight_justification": (
+            "Default weight 1.3 — elevated single-analyst weight. "
+            "Track-record multiplier will adjust once we have a "
+            "production backtest."
+        ),
+    },
     "sleeper_players": {
         "blurb": "Sleeper's canonical NBA player ID map. Used internally; does not contribute to scoring.",
         "type": "Reference data",

@@ -1,0 +1,368 @@
+{
+  "rows": [
+    {
+      "name": "Victor Wembanyama",
+      "team": "SAS",
+      "position": [
+        "C"
+      ],
+      "age": 22.3,
+      "years_exp": 2,
+      "elo_rating_points": 9999,
+      "elo_rating_categories": 9590,
+      "total_votes": 281,
+      "status": "active"
+    },
+    {
+      "name": "Nikola Jokic",
+      "team": "DEN",
+      "position": [
+        "C"
+      ],
+      "age": 31.1,
+      "years_exp": 10,
+      "elo_rating_points": 9784,
+      "elo_rating_categories": 9475,
+      "total_votes": 263,
+      "status": "active"
+    },
+    {
+      "name": "Shai Gilgeous-Alexander",
+      "team": "OKC",
+      "position": [
+        "PG"
+      ],
+      "age": 27.8,
+      "years_exp": 7,
+      "elo_rating_points": 9348,
+      "elo_rating_categories": 8789,
+      "total_votes": 217,
+      "status": "active"
+    },
+    {
+      "name": "Luka Doncic",
+      "team": "LAL",
+      "position": [
+        "PG"
+      ],
+      "age": 27.1,
+      "years_exp": 7,
+      "elo_rating_points": 9280,
+      "elo_rating_categories": 8787,
+      "total_votes": 240,
+      "status": "active"
+    },
+    {
+      "name": "Cade Cunningham",
+      "team": "DET",
+      "position": [
+        "PG"
+      ],
+      "age": 24.5,
+      "years_exp": 4,
+      "elo_rating_points": 8648,
+      "elo_rating_categories": 8537,
+      "total_votes": 226,
+      "status": "active"
+    },
+    {
+      "name": "Jalen Johnson",
+      "team": "ATL",
+      "position": [
+        "PF"
+      ],
+      "age": 24.3,
+      "years_exp": 4,
+      "elo_rating_points": 8407,
+      "elo_rating_categories": 8016,
+      "total_votes": 213,
+      "status": "active"
+    },
+    {
+      "name": "Tyrese Maxey",
+      "team": "PHI",
+      "position": [
+        "PG"
+      ],
+      "age": 25.4,
+      "years_exp": 5,
+      "elo_rating_points": 8231,
+      "elo_rating_categories": 7914,
+      "total_votes": 230,
+      "status": "active"
+    },
+    {
+      "name": "Anthony Edwards",
+      "team": "MIN",
+      "position": [
+        "SG"
+      ],
+      "age": 24.7,
+      "years_exp": 5,
+      "elo_rating_points": 8141,
+      "elo_rating_categories": 8256,
+      "total_votes": 231,
+      "status": "active"
+    },
+    {
+      "name": "2026 Pick 1.01",
+      "team": "PICK",
+      "position": [
+        "PICK"
+      ],
+      "age": 25.0,
+      "years_exp": null,
+      "elo_rating_points": 7697,
+      "elo_rating_categories": 7825,
+      "total_votes": 100,
+      "status": "active"
+    },
+    {
+      "name": "Cooper Flagg",
+      "team": "DAL",
+      "position": [
+        "SF"
+      ],
+      "age": 19.3,
+      "years_exp": 0,
+      "elo_rating_points": 8126,
+      "elo_rating_categories": 7950,
+      "total_votes": 238,
+      "status": "active"
+    },
+    {
+      "name": "Giannis Antetokounmpo",
+      "team": "MIL",
+      "position": [
+        "PF"
+      ],
+      "age": 31.3,
+      "years_exp": 12,
+      "elo_rating_points": 7846,
+      "elo_rating_categories": 7637,
+      "total_votes": 241,
+      "status": "active"
+    },
+    {
+      "name": "Jayson Tatum",
+      "team": "BOS",
+      "position": [
+        "SF"
+      ],
+      "age": 28.1,
+      "years_exp": 8,
+      "elo_rating_points": 7774,
+      "elo_rating_categories": 7641,
+      "total_votes": 210,
+      "status": "active"
+    },
+    {
+      "name": "2026 Pick 1.01",
+      "team": "PICK",
+      "position": [
+        "PICK"
+      ],
+      "age": 25.0,
+      "years_exp": null,
+      "elo_rating_points": 7697,
+      "elo_rating_categories": 7825,
+      "total_votes": 12,
+      "status": "active"
+    },
+    {
+      "name": "Alperen Sengun",
+      "team": "HOU",
+      "position": [
+        "C"
+      ],
+      "age": 23.7,
+      "years_exp": 4,
+      "elo_rating_points": 7634,
+      "elo_rating_categories": 7387,
+      "total_votes": 216,
+      "status": "active"
+    },
+    {
+      "name": "2026 Pick 1.02",
+      "team": "PICK",
+      "position": [
+        "PICK"
+      ],
+      "age": 25.0,
+      "years_exp": null,
+      "elo_rating_points": 7226,
+      "elo_rating_categories": 7173,
+      "total_votes": 80,
+      "status": "active"
+    },
+    {
+      "name": "Scottie Barnes",
+      "team": "TOR",
+      "position": [
+        "PF"
+      ],
+      "age": 24.7,
+      "years_exp": 4,
+      "elo_rating_points": 7572,
+      "elo_rating_categories": 7582,
+      "total_votes": 206,
+      "status": "active"
+    },
+    {
+      "name": "Deni Avdija",
+      "team": "POR",
+      "position": [
+        "PF"
+      ],
+      "age": 25.3,
+      "years_exp": 5,
+      "elo_rating_points": 7295,
+      "elo_rating_categories": 7453,
+      "total_votes": 203,
+      "status": "active"
+    },
+    {
+      "name": "Donovan Mitchell",
+      "team": "CLE",
+      "position": [
+        "SG"
+      ],
+      "age": 29.6,
+      "years_exp": 8,
+      "elo_rating_points": 7281,
+      "elo_rating_categories": 7319,
+      "total_votes": 205,
+      "status": "active"
+    },
+    {
+      "name": "2026 Pick 1.02",
+      "team": "PICK",
+      "position": [
+        "PICK"
+      ],
+      "age": 25.0,
+      "years_exp": null,
+      "elo_rating_points": 7226,
+      "elo_rating_categories": 7173,
+      "total_votes": 10,
+      "status": "active"
+    },
+    {
+      "name": "Tyrese Haliburton",
+      "team": "IND",
+      "position": [
+        "PG"
+      ],
+      "age": 26.1,
+      "years_exp": 5,
+      "elo_rating_points": 7211,
+      "elo_rating_categories": 7171,
+      "total_votes": 225,
+      "status": "active"
+    },
+    {
+      "name": "2026 Early 1st",
+      "team": "PICK",
+      "position": [
+        "PICK"
+      ],
+      "age": 25.0,
+      "years_exp": null,
+      "elo_rating_points": 7093,
+      "elo_rating_categories": 6700,
+      "total_votes": 50,
+      "status": "active"
+    },
+    {
+      "name": "2026 Early 1st",
+      "team": "PICK",
+      "position": [
+        "PICK"
+      ],
+      "age": 25.0,
+      "years_exp": null,
+      "elo_rating_points": 7093,
+      "elo_rating_categories": 6700,
+      "total_votes": 170,
+      "status": "active"
+    },
+    {
+      "name": "2026 Pick 1.03",
+      "team": "PICK",
+      "position": [
+        "PICK"
+      ],
+      "age": 25.0,
+      "years_exp": null,
+      "elo_rating_points": 7056,
+      "elo_rating_categories": 6959,
+      "total_votes": 13,
+      "status": "active"
+    },
+    {
+      "name": "Evan Mobley",
+      "team": "CLE",
+      "position": [
+        "C"
+      ],
+      "age": 24.8,
+      "years_exp": 4,
+      "elo_rating_points": 7025,
+      "elo_rating_categories": 7036,
+      "total_votes": 209,
+      "status": "active"
+    },
+    {
+      "name": "LaMelo Ball",
+      "team": "CHA",
+      "position": [
+        "PG"
+      ],
+      "age": 24.6,
+      "years_exp": 5,
+      "elo_rating_points": 7008,
+      "elo_rating_categories": 6862,
+      "total_votes": 219,
+      "status": "active"
+    },
+    {
+      "name": "Jaylen Brown",
+      "team": "BOS",
+      "position": [
+        "SF"
+      ],
+      "age": 29.5,
+      "years_exp": 9,
+      "elo_rating_points": 6998,
+      "elo_rating_categories": 7217,
+      "total_votes": 198,
+      "status": "active"
+    },
+    {
+      "name": "Josh Giddey",
+      "team": "CHI",
+      "position": [
+        "PG"
+      ],
+      "age": 23.5,
+      "years_exp": 4,
+      "elo_rating_points": 6990,
+      "elo_rating_categories": 7187,
+      "total_votes": 196,
+      "status": "active"
+    },
+    {
+      "name": "Paolo Banchero",
+      "team": "ORL",
+      "position": [
+        "PF"
+      ],
+      "age": 23.4,
+      "years_exp": 3,
+      "elo_rating_points": 6964,
+      "elo_rating_categories": 7293,
+      "total_votes": 210,
+      "status": "active"
+    }
+  ]
+}
