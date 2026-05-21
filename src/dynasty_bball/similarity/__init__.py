@@ -19,6 +19,9 @@ from .vectorize import (
     feature_names,
     derive_position_bucket,
     POSITION_BUCKETS,
+    vectorize_college_season,
+    build_college_corpus_profiles,
+    COLLEGE_FEATURE_NAMES,
 )
 from .comparables import (
     Comparable,
@@ -33,6 +36,19 @@ from .projection import (
     project_all_current_players,
     rescale_to_0_100,
 )
+from .rookie import (
+    NCAACorpusSearchIndex,
+    prepare_ncaa_search_index,
+    find_college_comparables,
+    project_rookie,
+    blended_dynasty_value,
+)
+from .bridge import (
+    build_bridge,
+    load_bridge,
+    save_bridge,
+    coverage_excluding_pre_corpus,
+)
 
 __all__ = [
     "Profile",
@@ -42,6 +58,9 @@ __all__ = [
     "feature_names",
     "derive_position_bucket",
     "POSITION_BUCKETS",
+    "vectorize_college_season",
+    "build_college_corpus_profiles",
+    "COLLEGE_FEATURE_NAMES",
     "Comparable",
     "find_comparables",
     "build_career_index",
@@ -51,4 +70,13 @@ __all__ = [
     "project_career",
     "project_all_current_players",
     "rescale_to_0_100",
+    "NCAACorpusSearchIndex",
+    "prepare_ncaa_search_index",
+    "find_college_comparables",
+    "project_rookie",
+    "blended_dynasty_value",
+    "build_bridge",
+    "load_bridge",
+    "save_bridge",
+    "coverage_excluding_pre_corpus",
 ]

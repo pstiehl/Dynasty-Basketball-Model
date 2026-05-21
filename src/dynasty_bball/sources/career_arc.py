@@ -76,6 +76,12 @@ from .historical_nba import (
     season_end_year,
     HistoricalPlayerSeason,
 )
+from .historical_ncaa import (
+    load_corpus as load_ncaa_corpus,
+    DEFAULT_CACHE_DIR as NCAA_CACHE_DIR,
+    DEFAULT_START_YEAR as NCAA_START_YEAR,
+    DEFAULT_END_YEAR as NCAA_END_YEAR,
+)
 from ..similarity import (
     build_corpus_profiles,
     build_career_index,
@@ -83,11 +89,18 @@ from ..similarity import (
     project_career,
     rescale_to_0_100,
     prepare_corpus_for_search,
+    build_college_corpus_profiles,
+    prepare_ncaa_search_index,
+    project_rookie,
+    blended_dynasty_value,
+    build_bridge,
+    save_bridge,
 )
 from ..similarity.vectorize import (
     build_profile_from_stats,
     derive_position_bucket,
 )
+from ..similarity.bridge import DEFAULT_BRIDGE_PATH
 
 
 log = logging.getLogger(__name__)
@@ -208,6 +221,153 @@ def _comparable_to_dict(c) -> dict:
     }
 
 
+def build_rookie_projections(
+    *,
+    ncaa_corpus_rows: list,
+    nba_rows: list,
+    nba_career_index,
+    bridge_by_pid: dict,
+    target_end_year: int = NCAA_END_YEAR,
+) -> dict:
+    """Project every CURRENT NCAA player (latest season available).
+
+    Returns:
+        {
+          "projections_by_btv_pid": {
+            btv_pid: {
+              "name": str, "school": str, "class_year": str,
+              "age": float, "position_bucket": str,
+              "points_dhk": CareerProjection,
+              "points_default": CareerProjection,
+              "comparables": [Comparable, ...],
+            }
+          },
+          "n_targets": int,
+          "n_with_nba_comps": int,
+        }
+
+    Only the most recent season of each NCAA player is used as the
+    "target" (subsequent seasons would just be different snapshots of
+    the same prospect). For the rookie chain we want every player
+    whose latest NCAA season is target_end_year -- i.e. current
+    draft prospects + everyone playing their final season of college
+    eligibility.
+    """
+    ncaa_corpus = build_college_corpus_profiles(ncaa_corpus_rows)
+    ncaa_index = prepare_ncaa_search_index(ncaa_corpus, ncaa_corpus_rows)
+
+    # Group NCAA rows by btv_pid and keep only the most recent season
+    # for each player. The "target" pool is players whose most recent
+    # season is at target_end_year -- i.e. current college players.
+    by_pid: dict[str, tuple] = {}
+    for idx, r in enumerate(ncaa_corpus_rows):
+        slot = by_pid.get(r.sr_player_id)
+        if slot is None or r.season_end_year > slot[0].season_end_year:
+            by_pid[r.sr_player_id] = (r, idx)
+
+    targets_all = [(pid, r, idx) for pid, (r, idx) in by_pid.items()
+                   if r.season_end_year == target_end_year]
+    # PROSPECT FILTER: limit emitted ranking records to actual draft
+    # prospects, not every D1 rotation player. Without an RSCI/ESPN-100
+    # list we use a stats-based heuristic that approximates the draft
+    # pool: top conferences (P5/HM) AND any of (BPM>=4, PPG>=14, USG>=22),
+    # OR (any conference + BPM>=7).
+    # ~150-300 players pass per year, matching the rough size of the
+    # combine pool. The KNN itself still searches the full corpus --
+    # this filter only gates which prospects produce RankingRecords.
+    from .historical_ncaa import CONFERENCE_TIER
+    def _is_prospect(r):
+        bpm = r.bpm if r.bpm is not None else -99
+        tier = CONFERENCE_TIER.get(r.conference, "LM")
+        # MPG floor of 22: a player with <22 MPG hasn't shown he can
+        # sustain NBA minutes. Per-36 stats lie when the sample is
+        # 12 MPG of garbage-time bench play. The same threshold the
+        # Combine + Big Boards implicitly use to screen prospects.
+        if r.mpg is not None and r.mpg < 22.0:
+            return False
+        if bpm >= 7.0:
+            return True
+        if tier in ("P5", "HM") and (bpm >= 4.0 or r.pts_pg >= 14.0 or r.usg_pct >= 22.0):
+            return True
+        return False
+    targets = [(pid, r, idx) for pid, r, idx in targets_all if _is_prospect(r)]
+    log.info(
+        "career_arc: rookie projection for %d current NCAA prospects "
+        "(filtered from %d total D1 rotation players via BPM/PPG/USG threshold)",
+        len(targets), len(targets_all),
+    )
+
+    # Batched KNN: one matmul for all 3000 targets instead of 3000
+    # separate matvecs. ~50x speedup.
+    from ..similarity.rookie import find_college_comparables_batch, _extrapolate_censored
+    from ..similarity.projection import project_career as _proj_career
+
+    batch_targets = [
+        (pid, ncaa_corpus.profiles[idx], r.class_year)
+        for pid, r, idx in targets
+    ]
+    comps_by_pid = find_college_comparables_batch(
+        targets=batch_targets,
+        ncaa_corpus=ncaa_corpus,
+        ncaa_index=ncaa_index,
+        bridge_by_pid=bridge_by_pid,
+        nba_career_index=nba_career_index,
+    )
+
+    projections_by_pid: dict[str, dict] = {}
+    n_with_nba_comps = 0
+    for pid, r, idx in targets:
+        prof = ncaa_corpus.profiles[idx]
+        age = r.age_at_season if r.age_at_season is not None else 19.5
+        entry = {
+            "name": r.name,
+            "school": r.school,
+            "conference": r.conference,
+            "class_year": r.class_year,
+            "age": age,
+            "position_bucket": prof.position_bucket,
+        }
+        raw_comps = comps_by_pid.get(pid, [])
+        # Extrapolate censored comps once -- format-independent.
+        comps = [_extrapolate_censored(c) for c in raw_comps]
+        nba_having = [c for c in comps if c.remaining_seasons > 0]
+        if any(c.remaining_seasons > 0 for c in comps):
+            n_with_nba_comps += 1
+        for fmt in ("points_dhk", "points_default"):
+            if nba_having:
+                proj_years_only = _proj_career(
+                    nba_id=pid, name=r.name, age=age,
+                    comparables=nba_having, league_format=fmt,
+                )
+                proj = _proj_career(
+                    nba_id=pid, name=r.name, age=age,
+                    comparables=comps, league_format=fmt,
+                )
+                proj.projected_remaining_years = proj_years_only.projected_remaining_years
+            else:
+                proj = _proj_career(
+                    nba_id=pid, name=r.name, age=age,
+                    comparables=comps, league_format=fmt,
+                )
+            entry[fmt] = proj
+        entry["comparables"] = comps
+        projections_by_pid[pid] = entry
+
+    # Rescale dynasty value within the rookie cohort, per-format. We
+    # do NOT rescale to the NBA cohort here -- the NBA composite is
+    # applied at the surface layer where we know which players are
+    # pure rookies vs. blends.
+    for fmt in ("points_dhk", "points_default"):
+        proj_list = [e[fmt] for e in projections_by_pid.values()]
+        rescale_to_0_100(proj_list)
+
+    return {
+        "projections_by_btv_pid": projections_by_pid,
+        "n_targets": len(targets),
+        "n_with_nba_comps": n_with_nba_comps,
+    }
+
+
 def build_projections(
     current_cache_dir: Path = BBREF_CACHE_DIR,
     current_season: str = BBREF_DEFAULT_SEASON,
@@ -215,6 +375,9 @@ def build_projections(
     historical_start_year: int = DEFAULT_START_YEAR,
     historical_end_season: str = HISTORICAL_END_SEASON,
     min_games: int = MIN_GAMES_DEFAULT,
+    ncaa_cache_dir: Path = NCAA_CACHE_DIR,
+    ncaa_start_year: int = NCAA_START_YEAR,
+    ncaa_end_year: int = NCAA_END_YEAR,
 ) -> dict:
     """Run the full similarity → projection pipeline.
 
@@ -282,11 +445,74 @@ def build_projections(
             search_index=search_index,
         )
 
+    # ------------------------------------------------------------------
+    # PR #7: NCAA corpus + bridge + rookie projections.
+    # ------------------------------------------------------------------
+    ncaa_rows = load_ncaa_corpus(
+        cache_dir=ncaa_cache_dir,
+        start_year=ncaa_start_year,
+        end_year=ncaa_end_year,
+    )
+    if ncaa_rows:
+        # Build the bridge from BOTH historical and current-season NBA
+        # players. The historical corpus drives the realized-career
+        # rollups, but the bridge also needs to know about CURRENT
+        # players (Cooper Flagg, drafted 2025-26 but absent from the
+        # historical 1980-2024 corpus) so we can attach their college
+        # comps. We synthesize lightweight HistoricalPlayerSeason
+        # objects for current targets and feed them through the bridge.
+        from .historical_nba import HistoricalPlayerSeason
+        current_synth_rows = []
+        for t in targets:
+            current_synth_rows.append(HistoricalPlayerSeason(
+                nba_id=t.nba_id, name=t.name, season=current_season,
+                season_end_year=season_end_year(current_season),
+                age=t.age, team=t.team, gp=t.gp, minutes=t.minutes,
+                pts=t.pts, reb=t.reb, ast=t.ast, stl=t.stl, blk=t.blk,
+                tov=t.tov, tpm=t.tpm,
+                fga=0.0, fta=0.0, fgm=0.0, ftm=0.0, fg_pct=0.0, ft_pct=0.0,
+            ))
+        bridge_rows = rows + current_synth_rows
+        bridge = build_bridge(bridge_rows, ncaa_rows)
+        try:
+            save_bridge(bridge)
+        except Exception as e:
+            log.warning("career_arc: failed to save bridge: %s", e)
+        rookie_results = build_rookie_projections(
+            ncaa_corpus_rows=ncaa_rows,
+            nba_rows=rows,
+            nba_career_index=career_index,
+            bridge_by_pid=bridge["by_btv_pid"],
+            target_end_year=ncaa_end_year,
+        )
+        log.info(
+            "career_arc: NCAA corpus %d rows; bridge matched %d/%d NBA players "
+            "(post-2008 coverage %.1f%%); %d rookie projections built",
+            len(ncaa_rows),
+            bridge["n_nba_players_matched"],
+            bridge["n_nba_players_total"],
+            100.0 * bridge["n_nba_players_matched"] / max(1, bridge["n_nba_players_total"] - bridge["n_pre_corpus_nba_players"]),
+            rookie_results["n_targets"],
+        )
+    else:
+        bridge = None
+        rookie_results = {"projections_by_btv_pid": {}, "n_targets": 0, "n_with_nba_comps": 0}
+        log.warning(
+            "career_arc: NCAA corpus is empty (no caches under %s). "
+            "Run scripts/backfill_historical_ncaa.py once locally and commit "
+            "the data/historical_ncaa/ directory. Rookie chain disabled.",
+            ncaa_cache_dir,
+        )
+
     results: dict = {
         "n_historical_seasons": len(rows),
         "n_current_players": len(targets),
+        "n_ncaa_seasons": len(ncaa_rows),
+        "n_rookie_projections": rookie_results["n_targets"],
         "targets_by_id": targets_by_id,
         "comps_by_target": comps_by_target,
+        "rookie_results": rookie_results,
+        "bridge": bridge,
     }
     for fmt in ("points_dhk", "points_default"):
         projections = []
@@ -380,7 +606,101 @@ class CareerArc(BaseSource):
         captured_at = datetime.utcnow()
         targets_by_id = results.get("targets_by_id", {})
         comps_by_target = results.get("comps_by_target", {})
+        rookie_results = results.get("rookie_results") or {}
+        rookie_by_pid = rookie_results.get("projections_by_btv_pid", {}) or {}
+        bridge = results.get("bridge") or {}
+        bridge_by_nba_id = (bridge or {}).get("by_nba_id", {})
         out: list[RankingRecord] = []
+
+        # Per-NBA-player NBA-season count (used by the blend logic).
+        nba_season_count: dict[str, int] = {}
+        for t in targets_by_id.values():
+            seasons = (
+                results.get("_career_seasons_per_player")
+                or {}
+            )
+        # Easier: walk the career_index seasons directly.
+        # build_projections didn't surface it, so re-derive from rows.
+        from .historical_nba import load_corpus as _load_nba
+        try:
+            _all_nba = _load_nba(
+                cache_dir=self.HISTORICAL_CACHE_DIR,
+                start_year=self.HISTORICAL_START_YEAR,
+                end_season=self.HISTORICAL_END_SEASON,
+            )
+            for r in _all_nba:
+                nba_season_count[r.nba_id] = nba_season_count.get(r.nba_id, 0) + 1
+        except Exception:
+            pass
+        # Also count the current season for every current-cohort player
+        # (the historical corpus ends one season before current).
+        for t in targets_by_id.values():
+            nba_season_count[t.nba_id] = nba_season_count.get(t.nba_id, 0) + 1
+
+        # Compute, per NBA player, their rookie-side projection (only
+        # meaningful when the bridge has a match -> a btv_pid). Then
+        # blend with the NBA-side projection per the season-count rule:
+        #   0 NBA seasons -> rookie only (covered separately by pure-
+        #                    rookie records keyed by btv_pid below)
+        #   1 NBA season  -> 0.5 * rookie + 0.5 * nba
+        #   2+ NBA seasons-> nba only
+        rookie_projection_by_nba_id: dict[str, dict] = {}
+        for nba_id, info in bridge_by_nba_id.items():
+            btv_pid = info.get("btv_pid")
+            if not btv_pid:
+                continue
+            rookie_entry = rookie_by_pid.get(btv_pid)
+            if not rookie_entry:
+                continue
+            rookie_projection_by_nba_id[nba_id] = rookie_entry
+
+        blended_by_id_and_fmt: dict[tuple, float] = {}
+        for fmt in ("points_dhk", "points_default"):
+            block = results.get(fmt) or {}
+            for proj in block.get("projections", []):
+                nba_id = proj.player_nba_id
+                n_seasons = nba_season_count.get(nba_id, 1)
+                rk_entry = rookie_projection_by_nba_id.get(nba_id)
+                rk_dv = (
+                    rk_entry[fmt].dynasty_value
+                    if rk_entry is not None else None
+                )
+                blended = blended_dynasty_value(
+                    rookie_dv=rk_dv,
+                    nba_dv=proj.dynasty_value,
+                    n_nba_seasons=n_seasons,
+                )
+                if blended is None:
+                    blended = proj.dynasty_value
+                blended_by_id_and_fmt[(nba_id, fmt)] = blended
+                # Mutate so dynasty_value reflects the blended value.
+                proj.dynasty_value = float(blended)
+
+        # ----------------------------------------------------------
+        # PURE ROOKIES — in the rookie cohort but NOT in the bbref
+        # current-season cohort. These need their own RankingRecord
+        # output. We DON'T have an nba_id for them yet, so we mint a
+        # synthetic id ("ncaa:<btv_pid>") that downstream merging by
+        # canonical name will collapse onto the existing Player row
+        # (e.g. Sleeper has Cooper Flagg pre-listed and that row is
+        # what the resolver attaches our record to).
+        # ----------------------------------------------------------
+        bridged_pids = {info["btv_pid"] for info in bridge_by_nba_id.values() if info.get("btv_pid")}
+        nba_by_target_id = set(targets_by_id.keys())
+
+        # Re-scale across the combined cohort so blended values stay
+        # comparable to pure-rookie values. We re-rank by dynasty_value
+        # post-blend before emission.
+        pure_rookie_records: list[tuple[str, dict, float, float]] = []  # (pid, entry, dv_dhk, dv_default)
+        for pid, entry in rookie_by_pid.items():
+            if pid in bridged_pids:
+                # Already has NBA seasons -> blend handled above.
+                continue
+            pure_rookie_records.append(
+                (pid, entry,
+                 float(entry["points_dhk"].dynasty_value),
+                 float(entry["points_default"].dynasty_value))
+            )
 
         # Write the comparables sidecar JSON so the site renderer can
         # surface top-5 comps on each player page without re-running
@@ -406,36 +726,107 @@ class CareerArc(BaseSource):
                     "per_year_survival_prob": [round(x, 3) for x in proj.per_year_survival_prob],
                 }
         for nba_id, comps in comps_by_target.items():
-            sidecar_payload["by_nba_id"][nba_id] = {
+            entry = {
                 "top_comparables": [_comparable_to_dict(c) for c in comps[:TOP_COMPS_FOR_UI]],
                 "n_comparables": len(comps),
                 "by_format": dynasty_by_id.get(nba_id, {}),
             }
+            # Attach rookie comparables (for players who also have a
+            # bridged college season -- shown alongside NBA comps).
+            rk_entry = rookie_projection_by_nba_id.get(nba_id)
+            if rk_entry is not None:
+                entry["top_college_comparables"] = [
+                    _comparable_to_dict(c) for c in rk_entry["comparables"][:TOP_COMPS_FOR_UI]
+                ]
+                entry["rookie_by_format"] = {
+                    fmt: {
+                        "rookie_dynasty_value": round(rk_entry[fmt].dynasty_value, 2),
+                        "projected_remaining_years": round(rk_entry[fmt].projected_remaining_years, 1),
+                        "projected_total_fantasy_points": round(rk_entry[fmt].projected_total_fantasy_points, 0),
+                    }
+                    for fmt in ("points_dhk", "points_default")
+                }
+                entry["n_nba_seasons"] = nba_season_count.get(nba_id, 0)
+                entry["blend_strategy"] = (
+                    "blend_50_50" if nba_season_count.get(nba_id, 0) == 1
+                    else ("nba_only" if nba_season_count.get(nba_id, 0) >= 2 else "rookie_only")
+                )
+            sidecar_payload["by_nba_id"][nba_id] = entry
+
+        # Pure rookies sidecar block.
+        pure_rookies_payload: dict = {}
+        for pid, entry, dv_dhk, dv_def in pure_rookie_records:
+            pure_rookies_payload[pid] = {
+                "name": entry["name"],
+                "school": entry["school"],
+                "conference": entry["conference"],
+                "class_year": entry["class_year"],
+                "age": round(entry["age"], 1),
+                "position_bucket": entry["position_bucket"],
+                "top_college_comparables": [
+                    _comparable_to_dict(c) for c in entry["comparables"][:TOP_COMPS_FOR_UI]
+                ],
+                "by_format": {
+                    fmt: {
+                        "rookie_dynasty_value": round(entry[fmt].dynasty_value, 2),
+                        "projected_remaining_years": round(entry[fmt].projected_remaining_years, 1),
+                        "projected_total_fantasy_points": round(entry[fmt].projected_total_fantasy_points, 0),
+                    }
+                    for fmt in ("points_dhk", "points_default")
+                },
+            }
+        sidecar_payload["pure_rookies_by_btv_pid"] = pure_rookies_payload
+        sidecar_payload["bridge_summary"] = {
+            "n_nba_players_total": (bridge or {}).get("n_nba_players_total", 0),
+            "n_nba_players_matched": (bridge or {}).get("n_nba_players_matched", 0),
+            "n_pre_corpus_nba_players": (bridge or {}).get("n_pre_corpus_nba_players", 0),
+            "match_rate": (bridge or {}).get("match_rate", 0),
+            "n_alias_hits": (bridge or {}).get("n_alias_hits", 0),
+        }
+        sidecar_payload["n_ncaa_seasons"] = results.get("n_ncaa_seasons", 0)
+        sidecar_payload["n_rookie_projections"] = results.get("n_rookie_projections", 0)
+
         try:
             with open(sidecar_path, "w", encoding="utf-8") as f:
                 json.dump(sidecar_payload, f, separators=(",", ":"))
         except Exception as e:
             log.warning("career_arc: failed to write comparables sidecar: %s", e)
 
+        # Emit ranking records.
         for fmt in ("points_dhk", "points_default"):
             block = results.get(fmt) or {}
             projections = block.get("projections", []) or []
-            # Sort by dynasty_value desc → overall_rank.
-            projections_sorted = sorted(
-                projections,
-                key=lambda p: p.dynasty_value,
-                reverse=True,
-            )
-            for rank, proj in enumerate(projections_sorted, start=1):
+            # Combine NBA projections + pure rookies in one ranking list.
+            # Pure rookies need to be slotted in by dynasty_value.
+            combined: list[tuple[float, str, str, Optional[str], float]] = []
+            for proj in projections:
                 t = targets_by_id.get(proj.player_nba_id)
+                combined.append((
+                    proj.dynasty_value,
+                    proj.player_nba_id,
+                    proj.player_name,
+                    t.team if t else None,
+                    proj.player_age,
+                ))
+            for pid, entry, dv_dhk, dv_def in pure_rookie_records:
+                dv = entry[fmt].dynasty_value
+                combined.append((
+                    dv,
+                    f"ncaa:{pid}",
+                    entry["name"],
+                    entry["school"],
+                    entry["age"],
+                ))
+            combined.sort(key=lambda x: x[0], reverse=True)
+            for rank, (dv, pid_or_id, name, team, age) in enumerate(combined, start=1):
                 out.append(RankingRecord(
                     source_slug=self.slug,
-                    nba_id=proj.player_nba_id,
-                    full_name=proj.player_name,
-                    nba_team=t.team if t else None,
-                    age=proj.player_age,
+                    nba_id=pid_or_id if not pid_or_id.startswith("ncaa:") else None,
+                    full_name=name,
+                    nba_team=team,
+                    age=age,
                     overall_rank=rank,
-                    market_value=proj.dynasty_value,
+                    market_value=dv,
                     league_format=fmt,
                     is_dynasty=True,
                     captured_at=captured_at,

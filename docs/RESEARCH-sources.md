@@ -329,6 +329,84 @@ then find college-→-NBA bridge players (Anthony Davis Kentucky →
 NBA, Kevin Durant Texas → NBA, ...) to rank rookies before they have
 NBA data.
 
+*Update: implemented in PR #7. See § 6 below for the data sourcing
+decision and full bridge methodology.*
+
+---
+
+## 6. barttorvik.com (NCAA D1, PR #7)
+
+**Site:** https://barttorvik.com/
+**Endpoint:** `getadvstats.php?year=<YYYY>&t=All&conlimit=All&top=0&revquery=`
+**Status in PR #7:** LIVE.
+
+The rookie college→NBA chain (PR #7) needs a ground-truth corpus of
+NCAA D1 player-seasons. The PR spec originally called for
+sports-reference.com/cbb, but that endpoint returns HTTP 403 to cloud
+/ CI IPs (Cloudflare-style anti-bot). Barttorvik is the cleaner
+substitute and is what we now use:
+
+  * **Coverage.** Every D1 player-season from 2008 to present
+    (~85K rows pre-filter, ~55K after ≥10 GP / ≥10 MPG floor).
+  * **Fields.** Per-game stats (PTS/REB/AST/STL/BLK/3PA/FGA/FTA),
+    advanced (USG, TS%, eFG%, AST%, TO%, BLK%, STL%, BPM), plus
+    identity (class Fr/So/Jr/Sr, height, conference, hometown,
+    birthdate). The unstructured JSON array uses positional columns;
+    we documented the mapping at `BTV_COL` in
+    `src/dynasty_bball/sources/historical_ncaa.py`.
+  * **Access.** One JSON round-trip per season (~2 MB raw). No
+    scraping required, no anti-bot defenses. Polite User-Agent +
+    1s/request rate limit is plenty. Live refreshes gated behind
+    `DYNASTY_BBALL_NCAA_LIVE=1`; otherwise loads cached JSON from
+    `data/historical_ncaa/season_<YYYY>.json`.
+  * **Cache.** Committed to the repo (~33 MB total for 18 seasons)
+    so CI never hits external sites.
+
+**Limitations:**
+
+  * No NCAA data before 2008. The bridge therefore can't connect
+    pre-2008 NBA debuts (Kobe, KG, LeBron, Carmelo, much of the
+    2000s draft class) to their college careers. Those players get
+    NBA-only similarity, which is the existing PR #4 behavior —
+    no regression for them, but it does cap the pool of bridgeable
+    "long-career" comps for current rookies.
+  * Position labels are play-style descriptors ("Combo G",
+    "Stretch 4") not the canonical PG/SG/SF/PF/C buckets. We derive
+    bucket from per-36 stats + height in
+    `_derive_college_bucket()`, same heuristic as the NBA side.
+  * International prospects don't appear (no D1 = not in dataset).
+    Future PR target: FIBA / Adidas Next Gen / G League Ignite
+    bridges.
+
+---
+
+## 7. College → NBA bridge (PR #7)
+
+Not a source, an internal artifact. For every NBA player in the
+historical NBA corpus, we attempt a heuristic match into the NCAA
+corpus via `canonical_key(name)` (§ 5 + the existing alias map). The
+match is gated on temporal plausibility: NCAA last season must be
+within 4 years of NBA debut, NCAA first season must precede NBA
+debut. Match tiers:
+
+  * `canonical` — exact canonical-key match (~96% of hits).
+  * `canonical_ambiguous` — two distinct NCAA btv_pids share the
+    canonical key; we pick the one with the most seasons and flag
+    the alternatives.
+  * `alias` — alias-map miss-and-recover (`Nic Claxton` ↔
+    `Nicolas Claxton`, `Mo Bamba` ↔ `Mohamed Bamba`).
+
+Current stats (cached corpus): **801 / 1947 NBA players matched
+(41.1% raw)**; **77.0% of post-2008-debut NBA players**. The 23%
+gap is dominated by international players. Diagnostics at
+`data/bridge/ncaa_to_nba.json`.
+
+False merges are catastrophic (Flagg's comp Joe Schmo gets credited
+with Klay Thompson's career), so we err on the side of "no match"
+and document the gap. False non-matches just drop the comp's NBA
+career to "zero remaining seasons", which is the right behavior for
+the "didn't make it" outcome.
+
 ---
 
 ## Player identity — name resolver + alias map (PR #6)

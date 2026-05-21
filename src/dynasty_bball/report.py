@@ -506,6 +506,18 @@ exactly the two inputs a dynasty model wants. See
 def _build_rankings(rows, latest_ts, league_format: str) -> str:
     resolver = _load_resolver_sidecar()
     unmatched = _load_unmatched_players()
+    # PR #7: rookie detection -- a player is a "rookie" if the
+    # career_arc sidecar shows n_nba_seasons ≤ 1, OR they appear in
+    # the pure_rookies_by_btv_pid list (no NBA id at all).
+    career_arc_sidecar = _load_career_arc_sidecar()
+    rookie_by_id: set[str] = set()
+    rookie_by_canon: set[str] = set()
+    from .name_resolver import canonical_key as _ck
+    for nba_id, e in (career_arc_sidecar.get("by_nba_id") or {}).items():
+        if (e.get("n_nba_seasons") or 0) <= 1 and e.get("top_college_comparables"):
+            rookie_by_id.add(nba_id)
+    for _pid, e in (career_arc_sidecar.get("pure_rookies_by_btv_pid") or {}).items():
+        rookie_by_canon.add(_ck(e.get("name", "")))
     banner_html = ""
     if resolver:
         merged = max(0, resolver.get("total", 0) - resolver.get("tier1", 0)
@@ -531,9 +543,15 @@ def _build_rankings(rows, latest_ts, league_format: str) -> str:
         cons_str = str(cs.consensus_rank) if cs.consensus_rank else '—'
         yr_str = f"{p.years_remaining:.1f}" if p.years_remaining is not None else "—"
         age_str = f"{p.age:.1f}" if p.age is not None else "—"
-        rows_html += f"""<tr class="player-row" data-name="{_esc(p.full_name.lower())}" data-position="{_esc(p.position or '')}" onclick="location='players/{slug}.html'">
+        is_rookie = (p.nba_id in rookie_by_id) or (_ck(p.full_name) in rookie_by_canon)
+        rookie_badge = (
+            ' <span style="background:var(--accent);color:white;padding:1px 5px;'
+            'border-radius:3px;font-size:10px;margin-left:4px;vertical-align:middle">R</span>'
+            if is_rookie else ""
+        )
+        rows_html += f"""<tr class="player-row" data-name="{_esc(p.full_name.lower())}" data-position="{_esc(p.position or '')}" data-rookie="{'1' if is_rookie else '0'}" onclick="location='players/{slug}.html'">
 <td class="rank">{cs.overall_rank}</td>
-<td class="name">{_esc(p.full_name)}</td>
+<td class="name">{_esc(p.full_name)}{rookie_badge}</td>
 <td>{_pos_badge(p.position)}</td>
 <td class="team">{_esc(p.nba_team or '—')}</td>
 <td class="years">{age_str}</td>
@@ -555,6 +573,9 @@ def _build_rankings(rows, latest_ts, league_format: str) -> str:
     <option value="SF">SF</option><option value="PF">PF</option>
     <option value="C">C</option>
   </select>
+  <label style="font-size:13px;margin-left:8px">
+    <input type="checkbox" id="rookies-only"> Rookies only
+  </label>
   <span class="stats" id="stats">{len(rows)} players</span>
 </div>
 
@@ -576,16 +597,19 @@ Click any row to see the per-source breakdown that produced the player's score.
 <script>
 const search = document.getElementById('search');
 const posFilter = document.getElementById('pos-filter');
+const rookiesOnly = document.getElementById('rookies-only');
 const rows = document.querySelectorAll('.player-row');
 const stats = document.getElementById('stats');
 function apply() {{
   const q = search.value.toLowerCase().trim();
   const pos = posFilter.value;
+  const ro = rookiesOnly && rookiesOnly.checked;
   let n = 0;
   rows.forEach(r => {{
     const matchName = !q || r.dataset.name.includes(q);
     const matchPos = !pos || r.dataset.position === pos;
-    const show = matchName && matchPos;
+    const matchRookie = !ro || r.dataset.rookie === '1';
+    const show = matchName && matchPos && matchRookie;
     r.style.display = show ? '' : 'none';
     if (show) n++;
   }});
@@ -593,6 +617,7 @@ function apply() {{
 }}
 search.addEventListener('input', apply);
 posFilter.addEventListener('change', apply);
+if (rookiesOnly) rookiesOnly.addEventListener('change', apply);
 </script>"""
 
     return _page(
@@ -936,6 +961,28 @@ def _build_player_page(cs, p, all_sources, latest_ts, league_format: str,
     comps = entry.get("top_comparables", []) or []
     by_fmt = (entry.get("by_format") or {}).get(league_format, {})
 
+    # PR #7 — rookie college→NBA chain. If this player has bridged
+    # NCAA seasons, we have college comps + a rookie projection sidecar.
+    college_comps = entry.get("top_college_comparables", []) or []
+    rookie_by_fmt = (entry.get("rookie_by_format") or {}).get(league_format, {})
+    n_nba_seasons = entry.get("n_nba_seasons")
+    blend_strategy = entry.get("blend_strategy")
+
+    # Pure rookies (no NBA seasons yet): look up by Player.canonical_key
+    # against the pure_rookies_by_btv_pid sidecar block. We don't have
+    # a direct nba_id->btv_pid mapping for pure rookies, so we do a
+    # name lookup. Sleeper-resolved names are post-canonicalized.
+    if not college_comps and p.nba_id is None or (not college_comps and not entry):
+        from .name_resolver import canonical_key as _ck
+        ck = _ck(p.full_name)
+        for _pid, e in (sidecar.get("pure_rookies_by_btv_pid") or {}).items():
+            if _ck(e.get("name", "")) == ck:
+                college_comps = e.get("top_college_comparables", []) or []
+                rookie_by_fmt = (e.get("by_format") or {}).get(league_format, {})
+                n_nba_seasons = 0
+                blend_strategy = "rookie_only"
+                break
+
     rows_html = ""
     for slug, info in sorted(bd.items(), key=lambda kv: -kv[1].get("weight", 0)):
         src = source_by_slug.get(slug)
@@ -1014,6 +1061,74 @@ similarity-weighted projection of these careers' remaining production
 </table>
 """
 
+    # ---------------------------------------------------------------
+    # College comparables block (PR #7 rookie chain).
+    # ---------------------------------------------------------------
+    college_html = ""
+    if college_comps:
+        rows = ""
+        for c in college_comps:
+            ppg_key = "remaining_fp_dhk" if league_format == "points_dhk" else "remaining_fp_default"
+            ppg = c.get(ppg_key)
+            yrs = c.get("remaining_seasons", 0)
+            if yrs == 0:
+                outcome = '<span style="color:var(--muted)">no NBA career</span>'
+            else:
+                censored_flag = " (still active)" if c.get("censored") else ""
+                outcome = f'{yrs} NBA seasons{censored_flag}'
+            bucket_flag = "" if c.get("bucket_match") else " · adj. bucket"
+            rows += (
+                f"<tr>"
+                f"<td class=\"name\">{_esc(c.get('name',''))}</td>"
+                f"<td class=\"years\">{_esc(c.get('season',''))}</td>"
+                f"<td class=\"years\">{c.get('age','')}</td>"
+                f"<td class=\"score\">{c.get('similarity', 0):.3f}</td>"
+                f"<td class=\"years\">{outcome}{bucket_flag}</td>"
+                f"<td class=\"score\">{ppg if ppg is not None else '—'}</td>"
+                f"</tr>"
+            )
+        rk_dv = rookie_by_fmt.get("rookie_dynasty_value")
+        rk_yr = rookie_by_fmt.get("projected_remaining_years")
+        rk_fp = rookie_by_fmt.get("projected_total_fantasy_points")
+        headline = []
+        if rk_dv is not None:
+            headline.append(f"rookie dynasty_value <strong>{rk_dv:.1f}</strong>")
+        if rk_yr is not None:
+            headline.append(f"projected NBA seasons <strong>{rk_yr:.1f}</strong>")
+        if rk_fp is not None:
+            headline.append(f"projected lifetime fppg-pts <strong>{int(rk_fp):,}</strong>")
+        blend_note = ""
+        if blend_strategy == "blend_50_50":
+            blend_note = (
+                " <em>(blended 50/50 with NBA-side projection: 1 NBA season "
+                "is a noisy signal, college comps still informative)</em>"
+            )
+        elif blend_strategy == "rookie_only":
+            blend_note = " <em>(no NBA seasons yet — pure college projection)</em>"
+        elif blend_strategy == "nba_only":
+            blend_note = (
+                " <em>(NBA-side projection used; college comps shown for context)</em>"
+            )
+        headline_line = " · ".join(headline) if headline else ""
+        college_html = f"""
+<h2>Rookie / College Comparables</h2>
+<p class="lede">Top-5 most similar NCAA D1 player-seasons by production
+profile + class + position. Each comp's realized NBA career anchors
+the rookie projection (college comps with no pro career still count—they
+represent the "didn't make it" outcome).{blend_note}</p>
+<p class="lede" style="margin-top:-6px"><em>{headline_line}</em></p>
+
+<table>
+<thead><tr>
+  <th>College comp</th><th>Their NCAA season</th><th>Age</th>
+  <th style="text-align:right">Similarity</th>
+  <th>Their NBA career</th>
+  <th style="text-align:right">Their NBA fppg ({_esc(league_format)})</th>
+</tr></thead>
+<tbody>{rows}</tbody>
+</table>
+"""
+
     body = f"""<div class="container">
 
 <h2>Per-source breakdown</h2>
@@ -1030,6 +1145,8 @@ source's universe, and the effective weight applied.</p>
 </table>
 
 {comps_html}
+
+{college_html}
 
 </div>"""
 
