@@ -19,6 +19,7 @@ dependencies = [
     "rich>=13.0",
     "scipy>=1.11",
     "python-dotenv>=1.0",
+    "nba_api>=1.4",
 ]
 
 [tool.setuptools.packages.find]

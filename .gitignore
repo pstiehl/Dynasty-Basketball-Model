@@ -47,6 +47,10 @@ data/**/*.json
 data/**/*.parquet
 !data/**/.gitkeep
 !tests/fixtures/**
+# Basketball-Reference cache is small (~200KB/season) and we ship it
+# in the repo so the daily CI build is deterministic and doesn't
+# hammer stats.nba.com. See sources/basketball_reference.py.
+!data/basketball_reference/*.json
 
 # OS
 Thumbs.db
