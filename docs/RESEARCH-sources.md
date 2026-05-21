@@ -328,3 +328,21 @@ the same 12-dim space after pace and league-strength translation,
 then find college-→-NBA bridge players (Anthony Davis Kentucky →
 NBA, Kevin Durant Texas → NBA, ...) to rank rookies before they have
 NBA data.
+
+---
+
+## Player identity — name resolver + alias map (PR #6)
+
+Not a source on its own, but every source above writes through it.
+
+The resolver lives at `src/dynasty_bball/name_resolver.py` and the
+hand-curated alias map at `data/name_aliases.json`. A 4-tier cascade
+(canonical key → last+initial+team → alias → conservative fuzzy)
+collapses cross-source name variants onto a single Player row so the
+composite ranker isn't fooled into ranking the same human twice.
+
+Full technical writeup at `docs/NAME-RESOLVER.md`. Diagnostics at
+`data/diagnostics/resolver_stats.json` and
+`data/diagnostics/unmatched_players.json`. Maintenance is alias-map
+level — when a new BBRef nickname / diacritic / Jr.-mismatch slips
+through, add one entry and re-run.

@@ -1,0 +1,189 @@
+{
+  "_about": "Hand-curated canonical-name alias map. Consulted by name_resolver before Tier-3 fuzzy match. Each entry: { canonical: <BBRef-style canonical name>, aliases: [<alternate names found in other sources>] }. Keep this list conservative and well-attested — false merges are catastrophic, false misses just exclude a player.",
+  "entries": [
+    {
+      "canonical": "Bub Carrington",
+      "aliases": ["Carlton Carrington", "Carlton Bub Carrington"]
+    },
+    {
+      "canonical": "Bones Hyland",
+      "aliases": ["Nah'Shon Hyland", "Nahshon Hyland", "Nah Shon Hyland"]
+    },
+    {
+      "canonical": "David Jones Garcia",
+      "aliases": ["David Jones", "David Jones-Garcia"]
+    },
+    {
+      "canonical": "Nigel Hayes-Davis",
+      "aliases": ["Nigel Hayes"]
+    },
+    {
+      "canonical": "Nic Claxton",
+      "aliases": ["Nicolas Claxton"]
+    },
+    {
+      "canonical": "Alex Sarr",
+      "aliases": ["Alexandre Sarr"]
+    },
+    {
+      "canonical": "Cam Thomas",
+      "aliases": ["Cameron Thomas"]
+    },
+    {
+      "canonical": "Mo Bamba",
+      "aliases": ["Mohamed Bamba"]
+    },
+    {
+      "canonical": "Bobby Portis",
+      "aliases": ["Robert Portis", "Bobby Portis Jr."]
+    },
+    {
+      "canonical": "Trey Murphy",
+      "aliases": ["Trey Murphy III"]
+    },
+    {
+      "canonical": "Larry Nance Jr.",
+      "aliases": ["Larry Nance"]
+    },
+    {
+      "canonical": "Kelly Oubre Jr.",
+      "aliases": ["Kelly Oubre"]
+    },
+    {
+      "canonical": "Wendell Carter Jr.",
+      "aliases": ["Wendell Carter"]
+    },
+    {
+      "canonical": "Gary Trent Jr.",
+      "aliases": ["Gary Trent"]
+    },
+    {
+      "canonical": "Tim Hardaway Jr.",
+      "aliases": ["Tim Hardaway"]
+    },
+    {
+      "canonical": "Andre Jackson Jr.",
+      "aliases": ["Andre Jackson"]
+    },
+    {
+      "canonical": "Lonnie Walker IV",
+      "aliases": ["Lonnie Walker"]
+    },
+    {
+      "canonical": "Vince Williams Jr.",
+      "aliases": ["Vince Williams"]
+    },
+    {
+      "canonical": "Cam Reddish",
+      "aliases": ["Cameron Reddish"]
+    },
+    {
+      "canonical": "Cam Whitmore",
+      "aliases": ["Cameron Whitmore"]
+    },
+    {
+      "canonical": "Cam Johnson",
+      "aliases": ["Cameron Johnson"]
+    },
+    {
+      "canonical": "Cam Spencer",
+      "aliases": ["Cameron Spencer"]
+    },
+    {
+      "canonical": "TJ McConnell",
+      "aliases": ["T.J. McConnell", "T J McConnell"]
+    },
+    {
+      "canonical": "PJ Tucker",
+      "aliases": ["P.J. Tucker"]
+    },
+    {
+      "canonical": "PJ Washington",
+      "aliases": ["P.J. Washington", "P.J. Washington Jr."]
+    },
+    {
+      "canonical": "OG Anunoby",
+      "aliases": ["O.G. Anunoby"]
+    },
+    {
+      "canonical": "AJ Green",
+      "aliases": ["A.J. Green"]
+    },
+    {
+      "canonical": "JT Thor",
+      "aliases": ["J.T. Thor"]
+    },
+    {
+      "canonical": "Jakob Pöltl",
+      "aliases": ["Jakob Poeltl", "Jakob Poltl"]
+    },
+    {
+      "canonical": "Kristaps Porziņģis",
+      "aliases": ["Kristaps Porzingis"]
+    },
+    {
+      "canonical": "Jusuf Nurkić",
+      "aliases": ["Jusuf Nurkic"]
+    },
+    {
+      "canonical": "Luka Dončić",
+      "aliases": ["Luka Doncic"]
+    },
+    {
+      "canonical": "Nikola Jokić",
+      "aliases": ["Nikola Jokic"]
+    },
+    {
+      "canonical": "Bogdan Bogdanović",
+      "aliases": ["Bogdan Bogdanovic"]
+    },
+    {
+      "canonical": "Goran Dragić",
+      "aliases": ["Goran Dragic"]
+    },
+    {
+      "canonical": "Dario Šarić",
+      "aliases": ["Dario Saric"]
+    },
+    {
+      "canonical": "Bojan Bogdanović",
+      "aliases": ["Bojan Bogdanovic"]
+    },
+    {
+      "canonical": "Boban Marjanović",
+      "aliases": ["Boban Marjanovic"]
+    },
+    {
+      "canonical": "Vasilije Micić",
+      "aliases": ["Vasilije Micic"]
+    },
+    {
+      "canonical": "Aleksej Pokuševski",
+      "aliases": ["Aleksej Pokusevski"]
+    },
+    {
+      "canonical": "Tristan Vukčević",
+      "aliases": ["Tristan Vukcevic"]
+    },
+    {
+      "canonical": "Filip Petrušev",
+      "aliases": ["Filip Petrusev"]
+    },
+    {
+      "canonical": "Nikola Topić",
+      "aliases": ["Nikola Topic"]
+    },
+    {
+      "canonical": "Bobi Klintman",
+      "aliases": ["Bob Klintman"]
+    },
+    {
+      "canonical": "Vlatko Čančar",
+      "aliases": ["Vlatko Cancar"]
+    },
+    {
+      "canonical": "Nikola Jović",
+      "aliases": ["Nikola Jovic"]
+    }
+  ]
+}

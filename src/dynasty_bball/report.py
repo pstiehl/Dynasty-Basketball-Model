@@ -504,6 +504,27 @@ exactly the two inputs a dynasty model wants. See
 # ---------------------------------------------------------------------------
 
 def _build_rankings(rows, latest_ts, league_format: str) -> str:
+    resolver = _load_resolver_sidecar()
+    unmatched = _load_unmatched_players()
+    banner_html = ""
+    if resolver:
+        merged = max(0, resolver.get("total", 0) - resolver.get("tier1", 0)
+                       - resolver.get("unresolved", 0)) and 0
+        # Show: "300 players · N duplicates merged · N unmatched"
+        tier1 = resolver.get("tier1", 0)
+        tier2 = resolver.get("tier2", 0)
+        tier3 = resolver.get("tier3", 0)
+        alias = resolver.get("alias", 0)
+        unresolved_n = resolver.get("unresolved", 0)
+        dupes_merged = tier2 + tier3 + alias  # rows that joined onto existing players via name resolution
+        banner_html = (
+            f'<div class="callout" style="font-size:13px;margin-bottom:14px">'
+            f'<strong>{len(rows)} players</strong> · '
+            f'{dupes_merged} name variants merged (T1:{tier1} · T2:{tier2} · T3:{tier3} · alias:{alias}) · '
+            f'{unresolved_n} unmatched ' + (
+                '<a href="sources.html#unmatched">[view]</a>' if unresolved_n else '✓'
+            ) + '</div>'
+        )
     rows_html = ""
     for cs, p in rows:
         slug = _slugify(p.full_name, p.id)
@@ -525,6 +546,7 @@ def _build_rankings(rows, latest_ts, league_format: str) -> str:
 
     body = f"""<div class="container">
 
+{banner_html}
 <div class="controls">
   <input type="text" id="search" placeholder="Search by player name…">
   <select id="pos-filter">
@@ -585,6 +607,48 @@ posFilter.addEventListener('change', apply);
 # ---------------------------------------------------------------------------
 
 def _build_sources_page(sources, latest_ts, league_format: str) -> str:
+    resolver = _load_resolver_sidecar()
+    unmatched = _load_unmatched_players()
+    resolver_html = ""
+    if resolver:
+        resolver_html = f"""<h3 id="resolver">Name resolver</h3>
+<div class="card">
+<p>Every incoming source record passes through a 4-tier name resolver before
+being joined onto a Player row. This catches diacritic mismatches
+("Dončić" ↔ "Doncic"), short-form spellings ("Nic Claxton" ↔ "Nicolas
+Claxton"), and Basketball-Reference nicknames ("Bones Hyland" ↔ "Nah'Shon
+Hyland") that would otherwise produce duplicate rows in the rankings.</p>
+<p style="font-size:13px;color:var(--muted)">Last run resolved
+<strong>{resolver.get('total', 0):,}</strong> records:
+Tier-1 canonical {resolver.get('tier1', 0)},
+Tier-2 last+initial+team {resolver.get('tier2', 0)},
+Tier-3 fuzzy {resolver.get('tier3', 0)},
+alias-map {resolver.get('alias', 0)},
+unresolved {resolver.get('unresolved', 0)}.</p>
+</div>
+"""
+    if unmatched:
+        rows_html = "".join(
+            f'<li><strong>{_esc(u.get("sleeper_name") or "(unknown)")}</strong> '
+            f'— {_esc(u.get("team") or "—")} · {_esc(u.get("position") or "—")} '
+            f'<span style="color:var(--muted);font-size:12px">'
+            f'(sleeper_id={_esc(u.get("sleeper_id") or "—")})</span></li>'
+            for u in unmatched
+        )
+        resolver_html += f"""<h4 id="unmatched">Players excluded — no Basketball-Reference match ({len(unmatched)})</h4>
+<div class="card">
+<p style="font-size:13px">These Sleeper-tracked players could not be matched
+to a Basketball-Reference row through any of the four resolver tiers, so they
+were excluded from the composite rankings. Typically genuine two-way / G-League
+players without a major-source presence.</p>
+<ul style="font-size:13px;line-height:1.8">{rows_html}</ul>
+</div>
+"""
+    else:
+        if resolver:
+            resolver_html += """<h4 id="unmatched">Players excluded — no Basketball-Reference match</h4>
+<div class="card"><p style="font-size:13px">✓ All Sleeper-tracked players matched to a Basketball-Reference row.</p></div>
+"""
     cards = ""
     for s in sources:
         meta = SOURCE_DESCRIPTIONS.get(s.slug, {})
@@ -624,6 +688,8 @@ Dynasty-Football-Model v0.10's weighting redesign</a>.</p>
 
 <h3>Active sources</h3>
 {cards}
+
+{resolver_html}
 
 </div>"""
 
@@ -791,6 +857,37 @@ document.addEventListener("DOMContentLoaded", evaluate);
 # ---------------------------------------------------------------------------
 # players/<slug>.html
 # ---------------------------------------------------------------------------
+
+def _load_resolver_sidecar() -> dict:
+    """Load the resolver_stats.json sidecar written by sync.
+
+    Returns ``{}`` if absent so the site still builds on a fresh clone
+    that has never run a sync.
+    """
+    path = Path("data/diagnostics/resolver_stats.json")
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _load_unmatched_players() -> list:
+    """Load the unmatched_players.json sidecar (players the resolver
+    could not match to a Basketball-Reference row).
+    """
+    path = Path("data/diagnostics/unmatched_players.json")
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
 
 def _load_career_arc_sidecar() -> dict:
     """Load the career_arc comparables sidecar JSON if present.
