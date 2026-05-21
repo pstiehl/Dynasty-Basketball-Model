@@ -53,6 +53,11 @@ data/**/*.parquet
 !data/basketball_reference/*.json
 !data/historical_nba/*.json
 !data/career_arc/*.json
+# Name resolver: ship the curated alias map (small, hand-edited) and
+# the diagnostic sidecars so the rendered site banner has data on a
+# fresh clone before the first sync.
+!data/name_aliases.json
+!data/diagnostics/*.json
 
 # OS
 Thumbs.db

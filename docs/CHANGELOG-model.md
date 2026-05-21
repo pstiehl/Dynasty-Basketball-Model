@@ -15,6 +15,76 @@ Format for each entry:
 
 ---
 
+## v0.5.0 — Name resolver + dedup pass (PR #6)
+
+**Date:** 2026-05-21
+
+**What changed.** Added a 4-tier player-name resolver (`src/dynasty_bball/
+name_resolver.py`) and wired it into the sync layer. Every incoming
+source record now passes through:
+
+1. Tier 1 — canonical key (lowercase + diacritic-fold + suffix-strip +
+   punctuation-strip). Catches `Dončić`↔`Doncic`↔`DONCIC`,
+   `LeBron James Jr.`↔`LeBron James`, `T.J.`↔`TJ`.
+2. Tier 2 — last name + first-initial + position bucket + team abbrev.
+   Catches `Nicolas Claxton`↔`Nic Claxton` (same `n`+`claxton`+`BKN`).
+3. Alias map (`data/name_aliases.json`) — hand-curated edge cases like
+   `Bones Hyland`↔`Nah'Shon Hyland`, `Bub Carrington`↔`Carlton
+   Carrington`, `Nigel Hayes-Davis`↔`Nigel Hayes`.
+4. Tier 3 — conservative fuzzy. Last name equal, position bucket
+   compatible, **same team**, first-name prefix/diminutive/similarity
+   guard. Never crosses team boundaries.
+
+DARKO and Court Consensus emit full team names ("Washington Wizards");
+the resolver normalizes those to 3-letter abbrevs (`WAS`) so they
+join cleanly onto Sleeper's `WAS` rows. A post-sync `dedup_players_
+by_canonical()` pass then walks the Player table and merges any
+leftover duplicates carried in from the pre-PR database.
+
+**Why.** Before PR #6 the top-300 had 5-7 duplicate rows per snapshot
+— every "Nicolas Claxton" / "Alexandre Sarr" / "Carlton Carrington"
+entry double-counted because DARKO's full-name spelling never joined
+onto Sleeper's short-form row. Those duplicates also lacked the
+Basketball-Reference / career-arc similarity signal (no join → no
+stats join), so they showed up as orphan rows with `data-position=""`
+and verbose team names. Phil flagged this directly:
+
+> If the model cannot locate the name of the player it is looking for
+> in the basketball reference database… it should be a dead giveaway
+> that it is a name / unique identifier issue. … use the last name of
+> the player and do a fuzzy match type of code on the first name.
+
+**Known dupes fixed in this PR (with previous rank pairs):**
+
+| Player                                  | Before                          | After       |
+| --------------------------------------- | ------------------------------- | ----------- |
+| Alex Sarr / Alexandre Sarr              | #30 (orphan) + #39 (C, WAS)     | one row     |
+| Nic Claxton / Nicolas Claxton           | #38 (orphan) + #85 (C, BKN)     | one row     |
+| Bub Carrington / Carlton Carrington     | #150 (orphan) + #270 (PG, WAS)  | one row     |
+| Bones Hyland / Nah'Shon Hyland          | #40 (orphan) + #300 (PG, MIN)   | one row     |
+| David Jones / David Jones Garcia        | #97 (orphan) + (SAS row)        | one row     |
+| Nigel Hayes / Nigel Hayes-Davis         | #221 (orphan) + (PHX row)       | one row     |
+
+**Excluded players.** Any Sleeper-tracked player that doesn't match a
+Basketball-Reference row through all four tiers + alias map is dropped
+from the rankings and listed on `sources.html#unmatched`. On the
+shipped DB this list is empty.
+
+**Expected output shift.** Top-300 shrinks by ~6 rows after dedup. The
+remaining row for each merged player keeps its better-of identity
+(position + 3-letter team) and the *summed* market value from both
+rows' source contributions, which can nudge those players up a few
+spots in the composite (more sources corroborating them).
+
+**Validation.** Site banner now shows `300 players · N name variants
+merged · N unmatched`. Tier counts are persisted to `data/diagnostics/
+resolver_stats.json` per sync so we can track resolver behavior over
+time. New unit tests in `tests/test_name_resolver.py` cover every
+canonical case (29 tests, all green) and pin the no-false-merge
+invariant on different surnames.
+
+---
+
 ## v0.4.0 — Career-arc similarity engine (PR #4)
 
 **Date:** 2026-05-21

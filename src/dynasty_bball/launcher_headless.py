@@ -41,7 +41,12 @@ def main():
 
     # Step 3: Sync data sources
     print("\n[3/6] Syncing data sources...")
-    from dynasty_bball.sync import sync_source
+    from dynasty_bball.sync import (
+        sync_source,
+        dedup_players_by_canonical,
+        write_resolver_diagnostics,
+    )
+    from dynasty_bball.name_resolver import ResolverStats
 
     synced_any = False
     sources_to_sync = [
@@ -57,14 +62,33 @@ def main():
         ("historical_nba", "Historical NBA corpus"),
         ("career_arc", "Career-Arc Similarity"),
     ]
+    resolver_stats = ResolverStats()
     for slug, label in sources_to_sync:
         try:
-            n = sync_source(slug)
+            n = sync_source(slug, stats=resolver_stats)
             print(f"  {label}: {n:,} rows")
             if n > 0:
                 synced_any = True
         except Exception as e:
             print(f"  {label}: FAILED ({e})")
+
+    # Post-sync dedup pass: collapse any canonical-key duplicates that
+    # snuck in before the resolver was wired up (the inherited DB has
+    # ~6 of these), then write the diagnostics sidecar.
+    try:
+        removed = dedup_players_by_canonical(stats=resolver_stats)
+        print(
+            f"  Resolver: {resolver_stats.total:,} records; "
+            f"{resolver_stats.tier1} tier-1, "
+            f"{resolver_stats.tier2} tier-2, "
+            f"{resolver_stats.tier3} tier-3, "
+            f"{resolver_stats.alias} alias-map, "
+            f"{resolver_stats.unresolved} unresolved "
+            f"({removed} canonical dupes merged)"
+        )
+        write_resolver_diagnostics(resolver_stats)
+    except Exception as e:
+        print(f"  Resolver dedup: FAILED ({e})")
 
     # Starter pack (empty in PR #1 — kept so the path exists)
     try:
