@@ -1,16 +1,55 @@
-name: Daily Refresh
+name: Daily refresh and publish
 
 on:
-  workflow_dispatch:
+  # Every day at 11:00 UTC (6 AM Central / 4 AM Pacific)
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 11 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  refresh:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the repo
+      - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Say hello
-        run: echo "It works!"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Run smoke + DARKO parser tests
+        run: |
+          python tests/smoke_test.py
+          python -m pytest tests/ -q
+
+      - name: Run the model end-to-end
+        run: |
+          python -m dynasty_bball.launcher_headless
+
+      - name: Upload site as a GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dynasty_site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
