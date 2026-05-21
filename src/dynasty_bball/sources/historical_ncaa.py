@@ -247,6 +247,12 @@ class HistoricalNCAASeason:
     blk_pct: float
     stl_pct: float
     bpm: Optional[float]
+    # PR #8: barttorvik prep-recruit percentile (0-100). Used by the
+    # draft-stock prior as a fallback recruiting signal when a prospect
+    # is in college but not yet in the NBA draft history. Optional with
+    # a default so existing test fixtures that predate this field still
+    # construct successfully.
+    rec_rank: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -390,6 +396,7 @@ def parse_barttorvik_payload(
                 blk_pct=_to_float(row[BTV_COL.BLK_PCT]) or 0.0,
                 stl_pct=_to_float(row[BTV_COL.STL_PCT]) or 0.0,
                 bpm=_to_float(row[BTV_COL.BPM]),
+                rec_rank=_to_float(row[BTV_COL.REC_RANK]) if len(row) > BTV_COL.REC_RANK else None,
             ))
         except (IndexError, KeyError, TypeError, ValueError) as e:
             log.debug("historical_ncaa: skipping malformed row: %s", e)

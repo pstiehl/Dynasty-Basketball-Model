@@ -326,6 +326,10 @@ def build_rookie_projections(
             "class_year": r.class_year,
             "age": age,
             "position_bucket": prof.position_bucket,
+            # PR #8: recruiting percentile (barttorvik rec_rank) is
+            # consumed by the draft-stock prior as a fallback signal
+            # for prospects not yet on any NBA draft board.
+            "rec_rank": getattr(r, "rec_rank", None),
         }
         raw_comps = comps_by_pid.get(pid, [])
         # Extrapolate censored comps once -- format-independent.
@@ -360,6 +364,34 @@ def build_rookie_projections(
     for fmt in ("points_dhk", "points_default"):
         proj_list = [e[fmt] for e in projections_by_pid.values()]
         rescale_to_0_100(proj_list)
+
+    # PR #8: Apply the draft-stock prior. Boost real lottery picks,
+    # penalize undrafted high-BPM mid-major freshmen. The multiplier
+    # works on the 0-100 rescaled values, then we re-rescale so the
+    # cohort still spans 0-100 after the prior compresses noise to
+    # the bottom and bumps real picks to the top.
+    from .draft_stock import (
+        load_index_or_empty,
+        apply_multipliers_to_rookie_entries,
+    )
+    big_board_index = load_index_or_empty()
+    if big_board_index.n_prospects > 0:
+        ds_stats = apply_multipliers_to_rookie_entries(
+            projections_by_pid, big_board_index,
+        )
+        log.info(
+            "career_arc: draft-stock prior applied to %d/%d rookies; tier counts: %s",
+            ds_stats["n_adjusted"], len(projections_by_pid), ds_stats["tier_counts"],
+        )
+        # Re-rescale so the cohort still spans 0-100 after the multiplier.
+        for fmt in ("points_dhk", "points_default"):
+            proj_list = [e[fmt] for e in projections_by_pid.values()]
+            rescale_to_0_100(proj_list)
+    else:
+        log.warning(
+            "career_arc: draft-stock big board empty; skipping prior. "
+            "Run scripts/refresh_draft_stock.py to build the cache."
+        )
 
     return {
         "projections_by_btv_pid": projections_by_pid,
@@ -751,6 +783,14 @@ class CareerArc(BaseSource):
                     "blend_50_50" if nba_season_count.get(nba_id, 0) == 1
                     else ("nba_only" if nba_season_count.get(nba_id, 0) >= 2 else "rookie_only")
                 )
+                # PR #8: surface the draft-stock prior on the player page.
+                entry["draft_stock"] = {
+                    "tier": rk_entry.get("draft_stock_tier"),
+                    "multiplier": rk_entry.get("draft_stock_multiplier"),
+                    "source": rk_entry.get("draft_stock_source"),
+                    "pick": rk_entry.get("draft_stock_pick"),
+                    "draft_year": rk_entry.get("draft_stock_draft_year"),
+                }
             sidecar_payload["by_nba_id"][nba_id] = entry
 
         # Pure rookies sidecar block.
@@ -773,6 +813,14 @@ class CareerArc(BaseSource):
                         "projected_total_fantasy_points": round(entry[fmt].projected_total_fantasy_points, 0),
                     }
                     for fmt in ("points_dhk", "points_default")
+                },
+                # PR #8: surface the draft-stock prior on the player page.
+                "draft_stock": {
+                    "tier": entry.get("draft_stock_tier"),
+                    "multiplier": entry.get("draft_stock_multiplier"),
+                    "source": entry.get("draft_stock_source"),
+                    "pick": entry.get("draft_stock_pick"),
+                    "draft_year": entry.get("draft_stock_draft_year"),
                 },
             }
         sidecar_payload["pure_rookies_by_btv_pid"] = pure_rookies_payload
