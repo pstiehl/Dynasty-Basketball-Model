@@ -49,6 +49,13 @@ def main():
         ("court_consensus", "Court Consensus"),
         ("vecenie", "Sam Vecenie"),
         ("basketball_reference", "Basketball-Reference"),
+        # PR #4 — career-arc similarity engine. Depends on the
+        # historical_nba cache already being present on disk; the
+        # adapter logs a warning and yields nothing if it's missing.
+        # Must run AFTER basketball_reference because it reuses that
+        # cache for current-season production.
+        ("historical_nba", "Historical NBA corpus"),
+        ("career_arc", "Career-Arc Similarity"),
     ]
     for slug, label in sources_to_sync:
         try:

@@ -452,7 +452,12 @@ class DARKO(BaseSource):
     category = "model"
     update_frequency = "daily"
     tos_compliant = True
-    default_weight = 1.5
+    # Weight reduced from 1.5 → 0.8 in v0.4.0 (PR #4). DARKO is now
+    # used as a current-skill / impact signal only; longevity is
+    # owned by the career_arc similarity engine (default_weight=1.8),
+    # which dethrones DARKO's broken survival curves (Cooper Flagg
+    # retiring at 28, etc.). See docs/CHANGELOG-model.md v0.4.0.
+    default_weight = 0.8
     homepage = "https://apanalytics.shinyapps.io/DARKO/"
     notes = (
         "Kostya Medvedovsky's public NBA impact projection system. "

@@ -9,6 +9,8 @@ from .darko import DARKO
 from .court_consensus import CourtConsensus
 from .vecenie import Vecenie
 from .basketball_reference import BasketballReference
+from .historical_nba import HistoricalNBA
+from .career_arc import CareerArc
 from .sleeper_players import SleeperPlayers
 
 
@@ -19,6 +21,8 @@ REGISTRY: dict[str, Type[BaseSource]] = {
         CourtConsensus,
         Vecenie,
         BasketballReference,
+        HistoricalNBA,
+        CareerArc,
         SleeperPlayers,
     ]
 }
@@ -26,5 +30,5 @@ REGISTRY: dict[str, Type[BaseSource]] = {
 __all__ = [
     "REGISTRY", "BaseSource", "RankingRecord",
     "DARKO", "CourtConsensus", "Vecenie", "BasketballReference",
-    "SleeperPlayers",
+    "HistoricalNBA", "CareerArc", "SleeperPlayers",
 ]

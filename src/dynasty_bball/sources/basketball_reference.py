@@ -385,7 +385,11 @@ class BasketballReference(BaseSource):
     category = "model"  # ground-truth realized stats, used as a "model" input
     update_frequency = "daily"
     tos_compliant = True
-    default_weight = 1.2
+    # Weight reduced from 1.2 → 1.0 in v0.4.0 (PR #4). Career-arc
+    # similarity engine (weight 1.8) now dominates the long-horizon
+    # signal; BBRef stays as the current-year production signal at
+    # parity with Court Consensus. See docs/CHANGELOG-model.md v0.4.0.
+    default_weight = 1.0
     homepage = "https://www.basketball-reference.com/"
     notes = (
         "Per-game NBA box-score production pulled via nba_api "

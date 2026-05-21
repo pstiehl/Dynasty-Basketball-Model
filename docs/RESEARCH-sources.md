@@ -252,3 +252,79 @@ Rookie-signal sources (data is pre-NBA) get added to
 that set are filtered out of the top of the composite to avoid the
 "draft picks who never played" pollution pattern that bit the football
 repo in early PRs.
+
+---
+
+## 5. Historical NBA corpus + Career-Arc Similarity engine
+
+**Sites:** stats.nba.com (LeagueDashPlayerStats); engine is internal.
+**Author:** internal (PR #4).
+**Status in PR #4:** LIVE.
+
+The historical corpus is every NBA player-season since 1980 (the first
+season with both 3-point and STL/BLK tracking). ~10,700 player-seasons
+across 45 seasons, cached as JSON under `data/historical_nba/` and
+committed to the repo so CI is deterministic. Live refresh gated
+behind `DYNASTY_BBALL_HISTORICAL_LIVE=1`.
+
+The Career-Arc Similarity engine (`src/dynasty_bball/similarity/`) uses
+that corpus to find, for each current player at age A, the top-20
+historical comps at age A±1 with matching production profile (per-36
+production rates, usage, efficiency, durability — see
+`docs/SIMILARITY-METHODOLOGY.md` for the full vector definition).
+Position bucket is derived from stat shape (AST/36 + (REB+1.5·BLK)/36)
+rather than roster designation — heuristic only, used as a soft
+filter with a small bucket-mismatch penalty in the cosine score.
+
+The engine then projects each current player's remaining career as a
+similarity-weighted, 5%/yr time-discounted aggregate of the comps'
+**actually observed** remaining production:
+
+  - `projected_remaining_years` — weighted *median* of comps' remaining
+    seasons (robust against tail outliers; the remaining-years
+    distribution is bimodal)
+  - `projected_total_fantasy_points` — weighted *mean* of present-value
+    remaining fantasy points (normally distributed around skill, so
+    the mean is right)
+  - `dynasty_value` — projected_total rescaled 0..100 across the
+    current cohort
+
+Two RankingRecords per player are emitted (DHK and default scoring),
+because remaining-career fantasy ppg is format-dependent (steals and
+blocks carry more in DHK at 2.0/2.0 than scoring does — opposite for
+the generic Sleeper points format).
+
+**Default weight: 1.8.** Highest in the composite. Dynasty value is
+fundamentally about projected forward production; this is the only
+source that directly outputs that. DARKO drops 1.5 → 0.8 in tandem
+because its longevity signal is now superseded.
+
+**Strengths.** Comps are real historical careers, not parametric fits,
+so the engine naturally captures the bimodal "Cooper Flagg looks like
+17-year careers" vs. "Harden looks like 3-year tails" distinction
+that breaks DARKO's age-curved survival model.
+
+**Weaknesses.** (1) Censored comps — active players whose corpus
+career ends at "current season" — under-state longevity, biasing
+projections slightly low for the active-era comp cluster. (2)
+Position bucket is statistical, not labeled, so combo wings can land
+in adjacent buckets across seasons. (3) Injury history is invisible
+to the profile vector — a player whose ankle will rob 5 years off the
+median comp gets credit for the median anyway. (4) No survivor-bias
+correction (we only see who played 15 years; we don't see who would
+have if they hadn't blown a knee at 25).
+
+**Backtest plan.** The engine is built to be back-runnable: pass an
+older `historical_end_season` and current data from any prior season,
+and the rest of the pipeline is unchanged. Once PR #6 lands the
+backtest harness we'll measure spearman of `dynasty_value` against
+realized 5-year forward fantasy production, position-stratified, and
+let the track-record multiplier float the 1.8 weight.
+
+**Forward extension (PR #5).** College → NBA bridge corpus.
+`similarity.vectorize.vectorize_college_season` is a stub. The plan
+is to pull college per-game stats from sports-reference, vectorize in
+the same 12-dim space after pace and league-strength translation,
+then find college-→-NBA bridge players (Anthony Davis Kentucky →
+NBA, Kevin Durant Texas → NBA, ...) to rank rookies before they have
+NBA data.

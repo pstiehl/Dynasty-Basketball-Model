@@ -15,6 +15,164 @@ Format for each entry:
 
 ---
 
+## v0.4.0 — Career-arc similarity engine (PR #4)
+
+**Date:** 2026-05-21
+
+The biggest model change since v0.1. Implements Phil's dynasty thesis:
+
+> One player that seems to be ranked too low is Cooper Flagg. Also some
+> of the older players like James Harden and Kawhi Leonard seem to be
+> ranked too high. The idea with dynasty is that the leagues go on
+> forever and the players production ends when that player retires from
+> the NBA. The DARKO score is saying Cooper Flagg will retire at 28?
+> That is clearly not right. Let's use a higher weight towards
+> similarity scores using the players age and production of fantasy
+> stats (and remaining stats for their career) to arrive at the player
+> rankings.
+
+### What changed
+
+**New source: `career_arc`** (`sources/career_arc.py`, `similarity/`).
+
+- For every NBA player-season since 1980 (cached under
+  `data/historical_nba/league_<season>.json`), we compute a profile
+  vector of per-36 production rates (PTS / REB / AST / STL / BLK /
+  3PM / TOV), usage proxies (FGA/36, FTA/36), efficiency (TS%), and
+  durability (GP/82, MPG). Z-score normalized across the corpus.
+- For each current player at age A, we find the top-20 historical
+  player-seasons at age A±1 in the same / adjacent position bucket
+  (PG→SG→SF→PF→C; bucket derived from stat shape, not roster label).
+- We aggregate those comps' **actual remaining careers** into:
+  - `projected_remaining_years` = similarity-weighted median of comps'
+    remaining seasons.
+  - `projected_total_fantasy_points` = similarity-weighted, 5%/yr
+    time-discounted sum of (comp ppg × comp games per remaining season)
+    — in the league's actual scoring (so DHK and default diverge).
+  - `per_year_survival_prob[1..15]` = fraction of comps still playing
+    at age A+k.
+  - `dynasty_value` = `projected_total_fantasy_points` rescaled
+    0..100 across the current cohort.
+- The adapter emits two RankingRecords per player (DHK + default) and
+  writes a sidecar JSON at `data/career_arc/comparables.json` carrying
+  the top-5 comps per player. The report page renders the comparables
+  on each player's detail view ("Most similar historical players at
+  this age: 1. LeBron James (age 19, sim=0.94)...").
+
+**New weights:**
+
+| Source                | Old weight | New weight | Rationale |
+|-----------------------|-----------:|-----------:|-----------|
+| `career_arc`          |        —   |    **1.8** | New dominant longevity signal. |
+| `darko`               |       1.5  |        0.8 | Demoted to current-skill only; longevity now owned by career_arc. |
+| `basketball_reference`|       1.2  |        1.0 | Stays as current-year production signal, on par with Court Consensus. |
+| `court_consensus`     |       1.0  |        1.0 | Unchanged (market signal). |
+| `vecenie`             |       0.5  |        0.5 | Unchanged (rookie-only filter, low weight). |
+
+### Why
+
+DARKO's survival model bakes a single Bayesian retirement-age estimate
+into every player. The model is calibrated against the population of
+active NBA careers but doesn't condition on profile — it just sees age
+and recent production. As a result it assigns ~age-28 retirement to a
+19-year-old superstar wing whose comp pool says he'll play to 38. For
+young high-ceiling players this is a catastrophic miscalibration
+because longevity dominates dynasty value.
+
+The similarity engine sidesteps this by using **actual observed comp
+careers** rather than a parametric survival fit. For Cooper Flagg at
+age 19, his top comps include Carmelo Anthony (17 more seasons),
+Kevin Durant (16+), Anthony Edwards (4 visible so far + still active)
+— a much richer prior than DARKO's curve.
+
+For old high-usage stars, the inverse is true: Harden at 36 finds
+comps in late-career LeBron (5 more), late-career Curry (2 more),
+Kobe at 36 (1 more). The weighted median is ~3 years — reality, not
+DARKO's continued mid-tier projection.
+
+### Expected output shift
+
+**Risers** (model corroborated post-implementation):
+
+| Player           | Age | BEFORE rank | AFTER rank | Δ   |
+|------------------|----:|------------:|-----------:|----:|
+| Cooper Flagg     |  19 |          26 |          3 | +23 |
+| Jeremiah Fears   |  19 |         160 |         31 | +129|
+| Dylan Harper     |  20 |          90 |         27 | +63 |
+| VJ Edgecombe     |  20 |          43 |          9 | +34 |
+| Stephon Castle   |  21 |          62 |         33 | +29 |
+| Paolo Banchero   |  23 |          33 |         14 | +19 |
+| Evan Mobley      |  24 |          17 |          5 | +12 |
+
+**Fallers** (model corroborated post-implementation):
+
+| Player           | Age | BEFORE rank | AFTER rank | Δ    |
+|------------------|----:|------------:|-----------:|-----:|
+| LeBron James     |  41 |          92 |        225 | -133 |
+| Jimmy Butler     |  36 |          89 |        211 | -122 |
+| Stephen Curry    |  38 |          52 |        169 | -117 |
+| Paul George      |  36 |         132 |        230 | -98  |
+| Kevin Durant     |  37 |          35 |        123 | -88  |
+| James Harden     |  36 |          42 |        113 | -71  |
+| Kawhi Leonard    |  34 |          16 |         78 | -62  |
+| Anthony Davis    |  33 |          39 |         82 | -43  |
+| Joel Embiid      |  32 |          32 |         64 | -32  |
+
+### Example comparable lists
+
+**Cooper Flagg (19yo, 21.0 PPG / 7.0 RPG / 4.0 APG)** — top 5 comps:
+  1. Carmelo Anthony 2003-04 (age 20, sim 0.927) — 17 remaining seasons,
+     21.5 fppg dhk
+  2. Kevin Durant 2007-08 (age 19, sim 0.916) — 16 remaining seasons,
+     27.8 fppg dhk
+  3. Anthony Edwards 2020-21 (age 19, sim 0.907) — 4 remaining (active),
+     24.8 fppg dhk
+  4. RJ Barrett 2019-20 (age 20, sim 0.899)
+  5. Paolo Banchero 2022-23 (age 20, sim 0.897)
+
+**Victor Wembanyama (22yo, 25.0 PPG / 12.9 RPG / 3.8 APG / 3.0 BLK)** — top 5 comps:
+  1. Kristaps Poržiņģis 2017-18 (age 22, sim 0.947) — 6 remaining seasons
+  2. Jaren Jackson Jr. 2021-22 (age 22, sim 0.936)
+  3. Anthony Davis 2015-16 (age 23, sim 0.930) — 9 remaining, 32.3 fppg dhk
+  4. Kristaps Poržiņģis 2016-17 (age 21, sim 0.908)
+  5. Karl-Anthony Towns 2018-19 (age 23, sim 0.907) — 6 remaining, 27.6 fppg dhk
+
+**James Harden (36yo, declining usage)** — top 5 comps:
+  1. LeBron James 2019-20 (age 35, sim 0.948) — 5 remaining (active)
+  2. LeBron James 2020-21 (age 36, sim 0.927) — 4 remaining (active)
+  3. Stephen Curry 2022-23 (age 35, sim 0.897) — 2 remaining (active)
+  4. J.J. Barea 2018-19 (age 35, sim 0.894) — 1 remaining
+  5. Kobe Bryant 2014-15 (age 36, sim 0.887) — 1 remaining
+
+Weighted median remaining years: **3.0**. Compared with DARKO's prior
+estimate of ~7+ years for a player at this DPM — the survival fit
+over-extends late-career high-skill guards because they hold DPM
+longer than they hold roster spots.
+
+### Validation
+
+- Tests pin the Flagg-top-15 invariant and the Harden-falls invariant
+  against the cached corpus (`tests/test_similarity.py`).
+- Long-term: once we have a backtest pipeline (PR #6+), the comp's
+  observed remaining production becomes the ground truth. Run
+  `career_arc` against frozen historical snapshots (predict Joel
+  Embiid's 2020-21 dynasty arc using only 2015-16 data, compare to
+  what actually happened) and let the track-record multiplier float
+  the weight to whatever the data supports. Initial 1.8 is set by
+  thesis priority, not by backtest — will be revisited.
+
+### Forward hooks (PR #5)
+
+The vectorize / comparables / projection modules are deliberately
+agnostic to NBA vs. college input. PR #5 will add a college→NBA
+bridge corpus (sports-reference college stats vectorized in the same
+feature space after pace + league-strength translation) so we can
+rank rookies the same way we rank pros — by who they're most
+similar to among historical pre-NBA prospects, then chained to those
+players' NBA careers. Stub: `similarity.vectorize.vectorize_college_season`.
+
+---
+
 ## v0.3.0 — Basketball-Reference per-game production via nba_api (PR #3)
 
 **Date:** 2026-05-21
