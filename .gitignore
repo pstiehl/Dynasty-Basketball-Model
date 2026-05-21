@@ -58,6 +58,9 @@ data/**/*.parquet
 # College->NBA bridge crosswalk (rebuilt during career_arc sync).
 !data/bridge/*.json
 !data/career_arc/*.json
+# Draft-stock big board (PR #8). Annual refresh after each NBA draft
+# via DYNASTY_BBALL_DRAFT_LIVE=1 python scripts/refresh_draft_stock.py.
+!data/draft_stock/*.json
 # Name resolver: ship the curated alias map (small, hand-edited) and
 # the diagnostic sidecars so the rendered site banner has data on a
 # fresh clone before the first sync.

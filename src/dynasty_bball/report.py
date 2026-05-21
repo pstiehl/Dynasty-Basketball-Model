@@ -674,6 +674,36 @@ players without a major-source presence.</p>
             resolver_html += """<h4 id="unmatched">Players excluded — no Basketball-Reference match</h4>
 <div class="card"><p style="font-size:13px">✓ All Sleeper-tracked players matched to a Basketball-Reference row.</p></div>
 """
+
+    # PR #8 — Draft-stock prior
+    draft_stock_html = """<h3 id="draft-stock-prior">Draft-stock prior</h3>
+<div class="card">
+<p>PR #7's college&rarr;NBA similarity chain surfaced every prospect who passed a
+BPM/PPG/USG filter, but mid-major freshmen with one hot season slipped into
+the rookie top-20 because the model had no notion of "actually drafted."</p>
+<p>The draft-stock prior layers in real NBA draft outcomes from <code>nba_api</code>'s
+DraftHistory endpoint (2008-2025) plus the barttorvik prep-recruit percentile
+(<code>rec_rank</code>) as a fallback, then multiplies each rookie's
+<code>rookie_dynasty_value</code> by a tier-based factor before the cohort
+is rescaled to 0-100.</p>
+<table style="font-size:13px">
+<thead><tr><th>Tier</th><th>NBA draft signal</th><th>Multiplier</th></tr></thead>
+<tbody>
+<tr><td><strong>top_5</strong></td><td>Pick #1-5</td><td>1.20&times;</td></tr>
+<tr><td><strong>lottery</strong></td><td>Pick #6-14</td><td>1.10&times;</td></tr>
+<tr><td><strong>first_round</strong></td><td>Pick #15-30</td><td>1.00&times; (baseline)</td></tr>
+<tr><td><strong>second_round</strong></td><td>Pick #31-60</td><td>0.85&times;</td></tr>
+<tr><td><strong>rec_rank_prior:elite</strong></td><td>Undrafted, consensus top-10 high-school recruit</td><td>0.85&times;</td></tr>
+<tr><td><strong>not_on_board:fourstar</strong></td><td>Undrafted, 4-star recruit (rec_rank 95-99.49)</td><td>0.30&times;</td></tr>
+<tr><td><strong>noise</strong></td><td>Undrafted, sub-4-star or unranked</td><td>0.30&times;</td></tr>
+</tbody>
+</table>
+<p style="font-size:13px;color:var(--muted)">Name lookups pass through PR #6's
+alias map, so "Carlton Carrington" (barttorvik) resolves to the NBA-drafted
+"Bub Carrington" record. Cache refreshed via
+<code>DYNASTY_BBALL_DRAFT_LIVE=1 python scripts/refresh_draft_stock.py</code>.</p>
+</div>
+"""
     cards = ""
     for s in sources:
         meta = SOURCE_DESCRIPTIONS.get(s.slug, {})
@@ -715,6 +745,8 @@ Dynasty-Football-Model v0.10's weighting redesign</a>.</p>
 {cards}
 
 {resolver_html}
+
+{draft_stock_html}
 
 </div>"""
 
@@ -968,6 +1000,10 @@ def _build_player_page(cs, p, all_sources, latest_ts, league_format: str,
     n_nba_seasons = entry.get("n_nba_seasons")
     blend_strategy = entry.get("blend_strategy")
 
+    # PR #8: draft-stock prior badge (set up for both blended and pure
+    # rookie cases; pure-rookie lookup below populates this when needed).
+    draft_stock = entry.get("draft_stock") or {}
+
     # Pure rookies (no NBA seasons yet): look up by Player.canonical_key
     # against the pure_rookies_by_btv_pid sidecar block. We don't have
     # a direct nba_id->btv_pid mapping for pure rookies, so we do a
@@ -981,6 +1017,7 @@ def _build_player_page(cs, p, all_sources, latest_ts, league_format: str,
                 rookie_by_fmt = (e.get("by_format") or {}).get(league_format, {})
                 n_nba_seasons = 0
                 blend_strategy = "rookie_only"
+                draft_stock = e.get("draft_stock") or {}
                 break
 
     rows_html = ""
@@ -1097,6 +1134,32 @@ similarity-weighted projection of these careers' remaining production
             headline.append(f"projected NBA seasons <strong>{rk_yr:.1f}</strong>")
         if rk_fp is not None:
             headline.append(f"projected lifetime fppg-pts <strong>{int(rk_fp):,}</strong>")
+        # PR #8: draft-stock tier badge -- the prior that scaled the
+        # rookie projection up or down.
+        ds_tier = draft_stock.get("tier")
+        ds_pick = draft_stock.get("pick")
+        ds_year = draft_stock.get("draft_year")
+        ds_mult = draft_stock.get("multiplier")
+        ds_source = draft_stock.get("source")
+        if ds_tier:
+            if ds_pick and ds_year:
+                badge = (
+                    f"draft stock <strong>{_esc(ds_tier)}</strong> "
+                    f"(pick #{int(ds_pick)} {int(ds_year)}, src={_esc(ds_source or '?')})"
+                )
+            elif ds_tier.startswith("rec_rank"):
+                badge = (
+                    f"draft stock <strong>{_esc(ds_tier)}</strong> "
+                    f"(no NBA draft entry; rec_rank prior)"
+                )
+            else:
+                badge = (
+                    f"draft stock <strong>{_esc(ds_tier)}</strong> "
+                    f"(undrafted, not on any board)"
+                )
+            if ds_mult is not None:
+                badge += f" \u00d7{float(ds_mult):.2f}"
+            headline.append(badge)
         blend_note = ""
         if blend_strategy == "blend_50_50":
             blend_note = (

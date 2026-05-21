@@ -15,6 +15,65 @@ Format for each entry:
 
 ---
 
+## v0.7.0 — Draft-stock prior (PR #8)
+
+**Date:** 2026-05-21
+
+**What changed.** Layered a *draft-stock multiplier* onto every rookie's
+`rookie_dynasty_value` before the cohort gets rescaled to 0–100. The prior is
+built from two signals:
+
+  1. **`nba_api` DraftHistory** — the authoritative record of who actually
+     got drafted (covers 2008–2025; 1,073 picks in cache). Pick #1–5 →
+     `top_5` (×1.20), #6–14 → `lottery` (×1.10), #15–30 → `first_round`
+     (×1.00 baseline), #31–60 → `second_round` (×0.85).
+  2. **Barttorvik prep-recruit percentile** (`rec_rank`, column 34 of the
+     existing barttorvik corpus) — used only when the player is undrafted.
+     Consensus top-10 high-school recruits (`rec_rank` ≥ 99.5) get a small
+     floor lift to `rec_rank_prior:elite` (×0.85); everyone else without an
+     NBA draft outcome falls into `noise` (×0.30).
+
+Name lookups pass through PR #6's alias map, so `"Carlton Carrington"`
+(barttorvik) resolves to the NBA-drafted `"Bub Carrington"` record automatically.
+
+**Why.** PR #7's final report flagged the noise pattern by name: *"High-BPM
+mid-major freshmen sneak into the top 20 (Moustapha Thiam #2, Austin Rapp
+#3, JT Toppin #12, Jayden Quaintance #16) — none of these are real 2025
+lottery picks except Thomas Sorber. The barttorvik corpus is missing a
+draft-stock prior."* The barttorvik engine is excellent at pattern-matching
+college production but has no notion of *"and an NBA team also believes in
+this guy."* nba_api's DraftHistory closes that gap with zero extra scraping
+infrastructure.
+
+**Expected output shift.**
+
+*Promoted (real 2025 lottery picks):*
+
+  * Cooper Flagg — #2 → #1 (×1.20 boost)
+  * Ace Bailey — #3 → #2
+  * Dylan Harper — #5 → #4
+  * V.J. Edgecombe — #7 → #5
+  * Thomas Sorber — already top-3, stays top-3 (×1.00 baseline)
+  * Kon Knueppel, Tre Johnson, Jeremiah Fears all hold top-10
+
+*Demoted (PR #7 noise sources):*
+
+  * Moustapha Thiam (UCF, undrafted) — #6 → #16 (×0.30 noise penalty)
+  * Austin Rapp (Portland, undrafted) — #8 → #18
+  * JT Toppin (Texas Tech, undrafted) — #11 → #22 (out of top-20)
+  * Jayden Quaintance (Arizona St., undrafted) — #14 → #24 (out of top-20)
+
+**Validation.** Five spec invariants enforced by `tests/test_draft_stock_prior.py`:
+Flagg stays top-3, Sorber stays top-10, all five named real lottery picks
+stay top-15, no PR #7 noise survives in the top-15, and no PR #7 noise outranks
+a real lottery pick. 18 new tests; 108 existing tests still pass.
+
+**Refresh cadence.** `data/draft_stock/big_board.json` is committed to git
+and only changes after the actual NBA draft (annually). Rebuild via
+`DYNASTY_BBALL_DRAFT_LIVE=1 python scripts/refresh_draft_stock.py`.
+
+---
+
 ## v0.6.0 — Rookie college→NBA similarity chain (PR #7)
 
 **Date:** 2026-05-21

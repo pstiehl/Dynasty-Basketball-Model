@@ -409,6 +409,41 @@ the "didn't make it" outcome.
 
 ---
 
+## 8. NBA Draft history — nba_api DraftHistory (PR #8)
+
+**Source.** `stats.nba.com/stats/drafthistory`, accessed via the
+`nba_api` Python package already used by the historical-NBA corpus.
+
+**What it provides.** The complete record of every NBA draft pick
+from 2008-2025: pick number, round, player name, college/organization,
+draft team. 1,073 prospects covered.
+
+**Why we use it.** PR #7's college→NBA chain pulled mid-major freshman
+noise into the rookie top-20 because the barttorvik corpus has no
+notion of "actually drafted." The DraftHistory endpoint provides the
+authoritative signal a model needs to weight Cooper Flagg above a
+random UCF freshman with similar counting stats.
+
+**Cache.** `data/draft_stock/big_board.json` (committed). Refresh
+via `DYNASTY_BBALL_DRAFT_LIVE=1 python scripts/refresh_draft_stock.py`.
+No CI live-fetch — the committed cache is the source of truth between
+drafts.
+
+**Multiplier table.** See `docs/DRAFT-STOCK-PRIOR.md` for the full
+tier → multiplier mapping and the rec_rank fallback used when a
+prospect isn't yet on any board. Briefly: top-5 pick → 1.20×, lottery
+→ 1.10×, first-round → 1.00×, second-round → 0.85×,
+undrafted-with-no-recruiting-signal → 0.30×.
+
+**Why not Tankathon / NBADraft.net / 247Sports?** JavaScript-rendered
+big boards block readability fetchers; Basketball-Reference's draft
+pages are behind Cloudflare; recruiting-rank composites measure
+high-school pedigree, not NBA outcome. nba_api is already in the
+dependency tree and gives us the actual NBA outcome with zero extra
+infrastructure.
+
+---
+
 ## Player identity — name resolver + alias map (PR #6)
 
 Not a source on its own, but every source above writes through it.
