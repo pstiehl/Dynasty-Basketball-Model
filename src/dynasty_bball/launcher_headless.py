@@ -46,6 +46,8 @@ def main():
     synced_any = False
     sources_to_sync = [
         ("darko", "DARKO"),
+        ("court_consensus", "Court Consensus"),
+        ("vecenie", "Sam Vecenie"),
     ]
     for slug, label in sources_to_sync:
         try:
@@ -117,40 +119,56 @@ def main():
     print("\nDone.")
 
 
-def _duplicate_rankings_to_format(src_fmt: str, dst_fmt: str) -> int:
-    """Clone Rankings from src_fmt to dst_fmt at the same captured_at.
+def _duplicate_rankings_to_format(
+    src_fmt: str,
+    dst_fmt: str,
+    source_slugs: tuple[str, ...] = ("darko",),
+) -> int:
+    """Clone Rankings from src_fmt to dst_fmt for format-agnostic sources.
 
-    PR #1 has only one source (DARKO) that doesn't differentiate between
-    league formats — its market_value is a longevity-adjusted impact
-    scalar that's identical regardless of scoring. To still emit a
-    composite_scores series for points_default we duplicate the rows so
-    the scoring layer has something to consume. Subsequent PRs that add
-    production-based adapters will emit per-format Rankings directly and
-    this helper will become a no-op.
+    DARKO's market_value is a longevity-adjusted impact scalar that does
+    not depend on scoring format, so we duplicate its ``points_dhk``
+    rows to ``points_default`` to keep that format's composite alive.
+    Court Consensus and Vecenie emit per-format records directly during
+    fetch and are NOT duplicated here (passing source_slugs scopes the
+    operation). Once a real production-based adapter lands and DARKO
+    too becomes per-format, this helper becomes a no-op.
     """
     from datetime import datetime
     from sqlalchemy import select, func
     from dynasty_bball.db.session import get_session
-    from dynasty_bball.db.models import Ranking
+    from dynasty_bball.db.models import Ranking, Source
 
     n = 0
     with get_session() as session:
+        src_ids = [
+            s.id
+            for s in session.execute(
+                select(Source).where(Source.slug.in_(source_slugs))
+            ).scalars().all()
+        ]
+        if not src_ids:
+            return 0
         latest = session.execute(
             select(func.max(Ranking.captured_at))
             .where(Ranking.league_format == src_fmt)
+            .where(Ranking.source_id.in_(src_ids))
         ).scalar_one_or_none()
         if latest is None:
             return 0
         rows = session.execute(
             select(Ranking)
             .where(Ranking.league_format == src_fmt)
+            .where(Ranking.source_id.in_(src_ids))
             .where(Ranking.captured_at == latest)
         ).scalars().all()
 
-        # Drop any prior duplicates at the same captured_at to keep idempotent.
+        # Drop any prior duplicates from these sources at the same
+        # captured_at to keep the operation idempotent.
         existing = session.execute(
             select(Ranking)
             .where(Ranking.league_format == dst_fmt)
+            .where(Ranking.source_id.in_(src_ids))
             .where(Ranking.captured_at == latest)
         ).scalars().all()
         for e in existing:

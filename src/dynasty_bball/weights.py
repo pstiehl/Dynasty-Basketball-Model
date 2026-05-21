@@ -45,12 +45,17 @@ from typing import Optional
 #   * bleacher_top_100   — public draft prospect lists
 #   * lance_stephenson_big_board (placeholder)
 #
-# In PR #1 the set is empty (DARKO covers ROOKIES via the active dataset
-# the moment they play their first game), but the wiring is here so future
-# adapters fall in cleanly.
+# PR #2 lands Sam Vecenie's Big Board (CSV-only) — see
+# ``dynasty_bball.sources.vecenie``. Vecenie's board ranks pre-NBA
+# prospects; once a player makes a regular-season appearance, DARKO and
+# Court Consensus pick them up and they carry corroboration. Players
+# whose ONLY ranking comes from Vecenie are filtered out of the top of
+# the composite (the "draft-prospect squatting in the top 50" pattern).
 # ---------------------------------------------------------------------------
 
-ROOKIE_SIGNAL_SOURCES: set[str] = set()
+ROOKIE_SIGNAL_SOURCES: set[str] = {
+    "vecenie",
+}
 
 
 # ---------------------------------------------------------------------------

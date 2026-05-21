@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # HTTP defaults
     request_timeout_seconds: int = 30
     user_agent: str = (
-        "DynastyBasketballModel/0.1 "
+        "DynastyBasketballModel/0.2 "
         "(open-source dynasty NBA aggregator; https://github.com/pstiehl/Dynasty-Basketball-Model)"
     )
 
