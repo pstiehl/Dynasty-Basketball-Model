@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+
+# Env
+.env
+.env.local
+.venv
+venv/
+ENV/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build outputs
+dynasty_site/
+dynasty_bball.db
+dynasty_bball.db-journal
+test_dynasty_bball.db
+
+# Data drops (large files are pulled live, not committed)
+data/**/*.csv
+data/**/*.json
+data/**/*.parquet
+!data/**/.gitkeep
+!tests/fixtures/**
+
+# OS
+Thumbs.db
