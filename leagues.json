@@ -1,0 +1,11 @@
+{
+  "_comment": "Leagues to pre-fetch and bake into the published site. Each entry produces dynasty_site/leagues/<platform>-<id>.json which the league.html page can load directly. Sleeper NBA leagues can be evaluated live from the site if their API allows CORS, but listing one will also pre-fetch its manager rankings.",
+  "leagues": [
+    {
+      "platform": "sleeper_nba",
+      "league_id": "1349496244468199424",
+      "league_format": "points_dhk",
+      "_name": "Dynasty Hoop Kings"
+    }
+  ]
+}
